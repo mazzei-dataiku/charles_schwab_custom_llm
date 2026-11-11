@@ -8,7 +8,8 @@ def extract_text(prediction):
     """
 
     if isinstance(prediction, dict) and "choices" in prediction:
-        return prediction["choices"][0]["message"]["content"]
+        content = prediction["choices"][0]["message"].get("content")
+        return "" if content is None else content
     if isinstance(prediction, str):
         return prediction
     return json.dumps(prediction, indent=2, default=str)
@@ -21,6 +22,6 @@ def extract_answer(predictions) -> str:
         predictions = [predictions]
     answer = ""
     for prediction in predictions:
-        answer += extract_text(prediction)
+        text = extract_text(prediction)
+        answer += "" if text is None else text
     return answer
-
