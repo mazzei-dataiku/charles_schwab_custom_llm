@@ -1,16 +1,22 @@
 {
     "id": "charles-schwab-custom-llm-plugin",
     "version": "1.0.0",
-    "meta": {
-        "label": "Jason",
-        "description": "Test Gemma 4 connection",
-        "author": "jason.domey@schwab.com",
-        "icon": "fas fa-puzzle-piece",
-        "recipesCategory": "",
-        "tags": [], //for example: ["Machine Learning", "NLP"]
-        "url": "",
-        "licenseInfo": "Apache Software License"
-    },
+  "meta": {
+    "label": "Charles Schwab - Google Vertex AI",
+    "description": "Custom Dataiku LLM Mesh integration for Google Cloud Vertex AI Model Garden. Supports multiple model endpoints, Private Service Connect (PSC), dedicated Vertex AI endpoints, and configurable GCP authentication.",
+    "author": "Charles Schwab / Dataiku",
+    "icon": "fas fa-brain",
+    "recipesCategory": "",
+    "tags": [
+      "Generative AI",
+      "LLM",
+      "Google Cloud",
+      "Vertex AI",
+      "LLM Mesh"
+    ],
+    "url": "",
+    "licenseInfo": "Apache Software License"
+  },
     "params": [
         {
             "name": "auth_method",
