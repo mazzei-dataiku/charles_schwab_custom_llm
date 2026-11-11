@@ -2,7 +2,7 @@
     "id": "charles-schwab-custom-llm-plugin",
     "version": "1.0.0",
     "meta": {
-        "label": "Charles Schwab - Google Vertex AI",
+        "label": "Google Vertex AI",
         "description": "Custom Dataiku LLM Mesh integration for Google Cloud Vertex AI Model Garden. Supports multiple model endpoints, Private Service Connect (PSC), dedicated Vertex AI endpoints, and configurable GCP authentication.",
         "author": "Charles Schwab / Dataiku",
         "icon": "fas fa-brain",
