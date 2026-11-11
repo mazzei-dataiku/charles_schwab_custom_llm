@@ -50,7 +50,6 @@
             "type": "STRING",
             "description": "GCP Project ID hosting the endpoint",
             "mandatory": true
-            //"defaultValue": "Default Value"
         },
         {
             "name": "location",
@@ -58,7 +57,6 @@
             "type": "STRING",
             "description": "GCP region hosting the endpoint",
             "mandatory": true
-            //"defaultValue": "Default Value"
         },
         {
             "name": "psc_address",
@@ -66,7 +64,6 @@
             "type": "STRING",
             "description": "Private service connection IP address",
             "mandatory": false
-            //"defaultValue": "Default Value"
         }
     ]
 }
