@@ -1,58 +1,58 @@
 {
-  "meta": {
-    "label": "Google Vertex AI",
-    "description": "Connect to Google Cloud Vertex AI Model Garden using dedicated or private PSC endpoints.",
-    "icon": "fas fa-magic"
-  },
-  "params": [
-    {
-      "name": "endpoint_type",
-      "label": "Endpoint type",
-      "type": "SELECT",
-      "description": "Select how this connection routes requests: Private Service Connect (PSC) uses a private endpoint with the plugin-level PSC address; Dedicated uses Vertex AI's dedicated endpoint routing.",
-      "mandatory": true,
-      "defaultValue": "PRIVATE_PSC",
-      "selectChoices": [
-        {
-          "value": "PRIVATE_PSC",
-          "label": "Private Service Connect (PSC)"
-        },
-        {
-          "value": "DEDICATED",
-          "label": "Dedicated Vertex AI Endpoint"
-        }
-      ]
-    },
-    {
-      "name": "endpoint_id",
-      "label": "Vertex Endpoint ID",
-      "type": "STRING",
-      "description": "Vertex AI endpoint identifier for this model connection (do not use the Dataiku model name).",
-      "mandatory": true
-    },
-    {
-      "name": "max_tokens",
-      "label": "Max output tokens",
-      "type": "INT",
-      "description": "Maximum number of tokens to generate.",
-      "defaultValue": 1024,
-      "mandatory": false
-    },
-    {
-      "name": "temperature",
-      "label": "Temperature",
-      "type": "DOUBLE",
-      "description": "Sampling temperature (higher = more random).",
-      "defaultValue": 0.2,
-      "mandatory": false
-    },
-    {
-      "name": "topp",
-      "label": "Top-p",
-      "type": "DOUBLE",
-      "description": "Nucleus sampling probability mass (0-1).",
-      "defaultValue": 0.95,
-      "mandatory": false
-    }
-  ]
+   "meta":{
+      "label":"Google Vertex AI",
+      "description":"Connect to Google Cloud Vertex AI Model Garden using dedicated or private PSC endpoints.",
+      "icon":"fas fa-magic"
+   },
+   "params":[
+      {
+         "name":"endpoint_type",
+         "label":"Endpoint type",
+         "type":"SELECT",
+         "description":"Select how this connection routes requests: Private Service Connect (PSC) uses a private endpoint with the plugin-level PSC address; Dedicated uses Vertex AI's dedicated endpoint routing.",
+         "mandatory":true,
+         "defaultValue":"PRIVATE_PSC",
+         "selectChoices":[
+            {
+               "value":"PRIVATE_PSC",
+               "label":"Private Service Connect (PSC)"
+            },
+            {
+               "value":"DEDICATED",
+               "label":"Dedicated Vertex AI Endpoint"
+            }
+         ]
+      },
+      {
+         "name":"endpoint_id",
+         "label":"Vertex Endpoint ID",
+         "type":"STRING",
+         "description":"Vertex AI endpoint identifier for this model connection (do not use the Dataiku model name).",
+         "mandatory":true
+      },
+      {
+         "name":"max_tokens",
+         "label":"Max output tokens",
+         "type":"INT",
+         "description":"Maximum number of tokens to generate.",
+         "defaultValue":1024,
+         "mandatory":false
+      },
+      {
+         "name":"temperature",
+         "label":"Temperature",
+         "type":"DOUBLE",
+         "description":"Sampling temperature (higher = more random).",
+         "defaultValue":0.2,
+         "mandatory":false
+      },
+      {
+         "name":"topp",
+         "label":"Top-p",
+         "type":"DOUBLE",
+         "description":"Nucleus sampling probability mass (0-1).",
+         "defaultValue":0.95,
+         "mandatory":false
+      }
+   ]
 }
