@@ -4,6 +4,7 @@ from dataiku.llm.python import BaseLLM
 from vertexai_shared import auth as vertex_auth
 from vertexai_shared import client as vertex_client
 from vertexai_shared import responses as vertex_responses
+from vertexai_shared.streaming import stream_single_chunk
 
 
 class MyLLM(BaseLLM):
@@ -122,26 +123,5 @@ class MyLLM(BaseLLM):
     # define aprocess_stream instead of process_stream for async support
     # ----------------------------------------------------------------------------------------------------
     def process_stream(self, query, settings, trace):
-        messages = query["messages"]
-
-        # Add code here, for LLM completion, tool execution, etc...
-
-        yield {
-            "chunk": {
-                "text": "The ",
-            }
-        }
-        yield {
-            "chunk": {
-                "text": "answer.",
-            }
-        }
-        yield {
-            "footer": {
-                "promptTokens": 46,  # Optional
-                "completionTokens": 10,  # Optional
-                "estimatedCost": 0.13,  # Optional
-                "toolCalls": [],
-            }
-        }
-
+        result = self.process(query, settings, trace)
+        yield from stream_single_chunk(text=result["text"], footer={"toolCalls": []})
