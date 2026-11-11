@@ -1,27 +1,59 @@
-/* This file is the descriptor for custom LLM gemma-legacy */
 {
-  "meta" : {
-    // label: name of the LLM as displayed, should be short
-    "label": "Custom LLM gemma-legacy",
-
-    // description: longer string to help end users understand what this LLM does.
-    "description": "This is the description of the custom LLM gemma-legacy",
-
-    // icon: must be one of the FontAwesome 5.15.4 icons, complete list here at https://fontawesome.com/v5/docs/
+  "meta": {
+    "label": "Gemma (legacy)",
+    "description": "Gemma 1.x on Vertex AI Model Garden using dedicated or private PSC endpoints.",
     "icon": "fas fa-magic"
   },
-
-  /* params:
-  DSS will generate a form from this list of requested parameters.
-  Your component code can then access the value provided by users using the "name" field of each parameter.
-
-  Available parameter types include:
-  STRING, INT, DOUBLE, BOOLEAN, DATE, SELECT, TEXTAREA, PRESET and others.
-
-  Warning: COLUMN_VALUE and COLUMN_VALUES are supported in Dataiku Apps, but not in plugins.
-
-  For the full list and for more details, see the documentation: https://doc.dataiku.com/dss/latest/plugins/reference/params.html
-  */
   "params": [
+    {
+      "name": "endpoint_type",
+      "label": "Endpoint type",
+      "type": "SELECT",
+      "description": "Select how this connection routes requests: Private Service Connect (PSC) uses a private endpoint with the plugin-level PSC address; Dedicated uses Vertex AI's dedicated endpoint routing.",
+      "mandatory": true,
+      "defaultValue": "PRIVATE_PSC",
+      "selectChoices": [
+        {
+          "value": "PRIVATE_PSC",
+          "label": "Private Service Connect (PSC)"
+        },
+        {
+          "value": "DEDICATED",
+          "label": "Dedicated Vertex AI Endpoint"
+        }
+      ]
+    },
+    {
+      "name": "endpoint_id",
+      "label": "Vertex Endpoint ID",
+      "type": "STRING",
+      "description": "Vertex AI endpoint identifier for this model connection (do not use the Dataiku model name).",
+      "mandatory": true
+    },
+    {
+      "name": "max_tokens",
+      "label": "Max output tokens",
+      "type": "INT",
+      "description": "Maximum number of tokens to generate.",
+      "defaultValue": 1024,
+      "mandatory": false
+    },
+    {
+      "name": "temperature",
+      "label": "Temperature",
+      "type": "DOUBLE",
+      "description": "Sampling temperature (higher = more random).",
+      "defaultValue": 0.2,
+      "mandatory": false
+    },
+    {
+      "name": "topp",
+      "label": "Top-p",
+      "type": "DOUBLE",
+      "description": "Nucleus sampling probability mass (0-1).",
+      "defaultValue": 0.95,
+      "mandatory": false
+    }
   ]
 }
+
