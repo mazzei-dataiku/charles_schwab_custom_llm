@@ -4,7 +4,8 @@ from dataiku.llm.python import BaseLLM
 from vertexai_shared import auth as vertex_auth
 from vertexai_shared import client as vertex_client
 from vertexai_shared import responses as vertex_responses
-from vertexai_shared.streaming import stream_single_chunk
+from vertexai_shared.streaming import stream_single_chunk, stream_tool_calls
+from vertexai_shared.tools import dataiku_tools_to_openai
 
 
 class MyLLM(BaseLLM):
@@ -113,6 +114,73 @@ class MyLLM(BaseLLM):
             }
         ]
 
+    def build_chat_instances_with_tools(self, query, settings):
+        instances = self.build_chat_instances(query)
+        tools = settings.get("tools") if isinstance(settings, dict) else None
+        if tools is not None:
+            translated_tools = dataiku_tools_to_openai(tools)
+            if translated_tools:
+                instances[0]["tools"] = translated_tools
+        return instances
+
+    def build_messages_with_tool_outputs(self, query):
+        """Return query messages as Vertex chat-completions messages, including tool outputs."""
+
+        messages = []
+        for message in query.get("messages") or []:
+            role = message.get("role")
+            if role in {"system", "user", "assistant"}:
+                content = message.get("content")
+                if content is None:
+                    content = ""
+                if not isinstance(content, str):
+                    raise TypeError("Only text message content is supported")
+                messages.append(
+                    {
+                        "role": role,
+                        "content": [{"type": "text", "text": content}],
+                    }
+                )
+            elif role == "tool":
+                tool_outputs = message.get("toolOutputs") or []
+                if not isinstance(tool_outputs, list):
+                    raise TypeError("Invalid toolOutputs: must be a list")
+                for tool_output in tool_outputs:
+                    call_id = tool_output.get("callId")
+                    output = tool_output.get("output")
+                    if not call_id or not isinstance(call_id, str):
+                        raise TypeError("Invalid toolOutputs: missing callId")
+                    if output is None:
+                        output = ""
+                    if not isinstance(output, str):
+                        raise TypeError("Invalid toolOutputs: output must be a string")
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": call_id,
+                            "content": [{"type": "text", "text": output}],
+                        }
+                    )
+            else:
+                raise TypeError(f"Unsupported message role: {role}")
+
+        return messages
+
+    def build_chat_instances_from_messages(self, messages, settings):
+        instances = [
+            {
+                "@requestFormat": "chatCompletions",
+                "messages": messages,
+                "max_tokens": self._config["max_tokens"],
+            }
+        ]
+        tools = settings.get("tools") if isinstance(settings, dict) else None
+        if tools is not None:
+            translated_tools = dataiku_tools_to_openai(tools)
+            if translated_tools:
+                instances[0]["tools"] = translated_tools
+        return instances
+
     def build_instances(self, query, prompt: str):
         variant = self._config["model_variant"]
         if variant == "BASE":
@@ -123,7 +191,16 @@ class MyLLM(BaseLLM):
 
     def process(self, query, settings, trace):
         prompt = self.build_prompt(query)
-        instances = self.build_instances(query, prompt)
+        if self._config["model_variant"] == "INSTRUCTION_TUNED":
+            # Preserve existing request format and augment with tools when provided.
+            # Also support passing tool outputs back to the model.
+            if any((m.get("role") == "tool") for m in (query.get("messages") or [])):
+                messages = self.build_messages_with_tool_outputs(query)
+                instances = self.build_chat_instances_from_messages(messages, settings)
+            else:
+                instances = self.build_chat_instances_with_tools(query, settings)
+        else:
+            instances = self.build_instances(query, prompt)
 
         response = vertex_client.predict(
             endpoint=self._endpoint,
@@ -136,5 +213,32 @@ class MyLLM(BaseLLM):
         return {"text": answer, "prompt": prompt}
 
     def process_stream(self, query, settings, trace):
-        result = self.process(query, settings, trace)
-        yield from stream_single_chunk(text=result["text"], footer={"toolCalls": []})
+        # Streaming-first tool calling: if the model returns tool calls,
+        # return them as streamed content chunks for Dataiku agents.
+        prompt = self.build_prompt(query)
+
+        if self._config["model_variant"] != "INSTRUCTION_TUNED":
+            result = self.process(query, settings, trace)
+            yield from stream_single_chunk(text=result["text"], footer={})
+            return
+
+        if any((m.get("role") == "tool") for m in (query.get("messages") or [])):
+            messages = self.build_messages_with_tool_outputs(query)
+            instances = self.build_chat_instances_from_messages(messages, settings)
+        else:
+            instances = self.build_chat_instances_with_tools(query, settings)
+
+        response = vertex_client.predict(
+            endpoint=self._endpoint,
+            endpoint_type=self._config["endpoint_type"],
+            instances=instances,
+            psc_address=self._plugin_config.get("psc_address"),
+        )
+
+        tool_calls = vertex_responses.extract_tool_call_chunks(response.predictions)
+        if tool_calls:
+            yield from stream_tool_calls(tool_calls=tool_calls, footer={})
+            return
+
+        answer = vertex_responses.extract_answer(response.predictions)
+        yield from stream_single_chunk(text=answer, footer={})

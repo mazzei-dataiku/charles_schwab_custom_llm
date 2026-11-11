@@ -33,8 +33,8 @@ def test_gemma_4_process_stream_delegates(monkeypatch):
     llm = module.MyLLM()
 
     llm.process = MagicMock(return_value={"text": "ok", "prompt": "p"})
+    llm._config = {"model_variant": "BASE", "endpoint_type": "DEDICATED"}
     events = list(llm.process_stream({"messages": [{"role": "user", "content": "x"}]}, {}, {}))
     assert events[0] == {"chunk": {"text": "ok"}}
-    assert events[1] == {"footer": {"toolCalls": []}}
+    assert events[1] == {"footer": {}}
     llm.process.assert_called_once()
-

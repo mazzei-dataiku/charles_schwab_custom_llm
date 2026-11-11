@@ -164,6 +164,92 @@ def test_instruction_tuned_builds_chat_completions_request(monkeypatch):
     ]
 
 
+def test_instruction_tuned_includes_tools_in_vertex_request(monkeypatch):
+    module = _load_gemma_4_module()
+    llm = module.MyLLM()
+
+    monkeypatch.setattr(module.vertex_auth, "build_credentials", lambda plugin_config: None)
+    monkeypatch.setattr(module.vertex_client, "init_aiplatform", lambda **kwargs: None)
+
+    endpoint = MagicMock()
+    monkeypatch.setattr(module.vertex_client, "build_endpoint", lambda **kwargs: endpoint)
+
+    response = MagicMock(predictions=["ok"])
+    predict_mock = MagicMock(return_value=response)
+    monkeypatch.setattr(module.vertex_client, "predict", predict_mock)
+    monkeypatch.setattr(module.vertex_responses, "extract_answer", lambda preds: "ok")
+
+    llm.set_config(
+        {"endpoint_id": "eid", "model_variant": "INSTRUCTION_TUNED"},
+        {"project_id": "p", "location": "l", "psc_address": "10.0.0.1"},
+    )
+
+    query = {"messages": [{"role": "user", "content": "hi"}]}
+    settings = {
+        "tools": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "SQL_dataset_Query__874fe6",
+                    "description": "Query",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"question": {"type": "string"}},
+                        "required": ["question"],
+                    },
+                },
+            }
+        ]
+    }
+    llm.process(query, settings=settings, trace={})
+
+    instances = predict_mock.call_args.kwargs["instances"]
+    assert instances[0]["tools"] == settings["tools"]
+
+
+def test_process_stream_emits_tool_calls_chunk(monkeypatch):
+    module = _load_gemma_4_module()
+    llm = module.MyLLM()
+
+    monkeypatch.setattr(module.vertex_auth, "build_credentials", lambda plugin_config: None)
+    monkeypatch.setattr(module.vertex_client, "init_aiplatform", lambda **kwargs: None)
+    monkeypatch.setattr(module.vertex_client, "build_endpoint", lambda **kwargs: MagicMock())
+
+    response = MagicMock(
+        predictions={
+            "choices": [
+                {
+                    "message": {
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {"name": "t", "arguments": "{}"},
+                            }
+                        ],
+                    }
+                }
+            ]
+        }
+    )
+    monkeypatch.setattr(module.vertex_client, "predict", lambda **kwargs: response)
+
+    llm.set_config(
+        {"endpoint_id": "eid", "model_variant": "INSTRUCTION_TUNED"},
+        {"project_id": "p", "location": "l", "psc_address": "10.0.0.1"},
+    )
+
+    events = list(
+        llm.process_stream(
+            {"messages": [{"role": "user", "content": "hi"}]},
+            settings={"tools": []},
+            trace={},
+        )
+    )
+    assert events[0]["chunk"].get("toolCalls")
+
+
 def test_instruction_tuned_rejects_unsupported_role(monkeypatch):
     module = _load_gemma_4_module()
     llm = module.MyLLM()
@@ -177,10 +263,16 @@ def test_instruction_tuned_rejects_unsupported_role(monkeypatch):
         {"project_id": "p", "location": "l", "psc_address": "10.0.0.1"},
     )
 
-    query = {"messages": [{"role": "tool", "content": "x"}]}
-    with pytest.raises(TypeError) as exc:
-        llm.process(query, settings={}, trace={})
-    assert "Unsupported message role: tool" in str(exc.value)
+    query = {"messages": [{"role": "tool", "toolOutputs": [{"callId": "c", "output": "x"}]}]}
+
+    response = MagicMock(predictions=["ok"])
+    predict_mock = MagicMock(return_value=response)
+    monkeypatch.setattr(module.vertex_client, "predict", predict_mock)
+    monkeypatch.setattr(module.vertex_responses, "extract_answer", lambda preds: "ok")
+
+    llm.process(query, settings={}, trace={})
+    instances = predict_mock.call_args.kwargs["instances"]
+    assert instances[0]["messages"][0]["role"] == "tool"
 
 
 def test_instruction_tuned_rejects_non_text_content(monkeypatch):
