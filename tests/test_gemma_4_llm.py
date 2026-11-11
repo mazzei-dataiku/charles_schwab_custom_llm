@@ -62,7 +62,7 @@ def test_process_builds_plain_prompt_and_payload(monkeypatch):
     monkeypatch.setattr(module.vertex_responses, "extract_answer", lambda preds: "ok")
 
     llm.set_config(
-        {"endpoint_id": "eid", "endpoint_type": "PRIVATE_PSC"},
+        {"endpoint_id": "eid", "endpoint_type": "PRIVATE_PSC", "model_variant": "BASE"},
         {"project_id": "p", "location": "l", "psc_address": "10.0.0.1"},
     )
 
@@ -85,13 +85,118 @@ def test_process_builds_plain_prompt_and_payload(monkeypatch):
     assert called_kwargs["psc_address"] == "10.0.0.1"
 
     instances = called_kwargs["instances"]
+    assert instances == [{"prompt": out["prompt"], "max_tokens": 128}]
+
+
+def test_instruction_tuned_builds_chat_completions_request(monkeypatch):
+    module = _load_gemma_4_module()
+    llm = module.MyLLM()
+
+    monkeypatch.setattr(module.vertex_auth, "build_credentials", lambda plugin_config: None)
+    monkeypatch.setattr(module.vertex_client, "init_aiplatform", lambda **kwargs: None)
+
+    endpoint = MagicMock()
+    monkeypatch.setattr(module.vertex_client, "build_endpoint", lambda **kwargs: endpoint)
+
+    response = MagicMock(
+        predictions={
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {"role": "assistant", "content": "Phoenix"},
+                }
+            ]
+        }
+    )
+    predict_mock = MagicMock(return_value=response)
+    monkeypatch.setattr(module.vertex_client, "predict", predict_mock)
+
+    llm.set_config(
+        {
+            "endpoint_id": "eid",
+            "endpoint_type": "DEDICATED",
+            "model_variant": "INSTRUCTION_TUNED",
+        },
+        {"project_id": "p", "location": "l", "psc_address": "10.0.0.1"},
+    )
+
+    query = {
+        "messages": [
+            {"role": "system", "content": "Be concise"},
+            {"role": "user", "content": "What is the capital of Arizona?"},
+            {"role": "assistant", "content": "Let me think"},
+            {"role": "user", "content": "Just answer"},
+        ]
+    }
+    out = llm.process(query, settings={}, trace={})
+
+    assert set(out.keys()) == {"text", "prompt"}
+    assert out["text"] == "Phoenix"
+    assert out["prompt"] == "Be concise\n\nWhat is the capital of Arizona?\n\nLet me think\n\nJust answer"
+
+    called_kwargs = predict_mock.call_args.kwargs
+    instances = called_kwargs["instances"]
     assert instances == [
         {
-            "prompt": out["prompt"],
+            "@requestFormat": "chatCompletions",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": [{"type": "text", "text": "Be concise"}],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "What is the capital of Arizona?"}
+                    ],
+                },
+                {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "Let me think"}],
+                },
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": "Just answer"}],
+                },
+            ],
             "max_tokens": 128,
-            "temperature": 0.2,
-            "top_p": 0.95,
-            "raw_response": True,
         }
     ]
 
+
+def test_instruction_tuned_rejects_unsupported_role(monkeypatch):
+    module = _load_gemma_4_module()
+    llm = module.MyLLM()
+
+    monkeypatch.setattr(module.vertex_auth, "build_credentials", lambda plugin_config: None)
+    monkeypatch.setattr(module.vertex_client, "init_aiplatform", lambda **kwargs: None)
+    monkeypatch.setattr(module.vertex_client, "build_endpoint", lambda **kwargs: MagicMock())
+
+    llm.set_config(
+        {"endpoint_id": "eid", "model_variant": "INSTRUCTION_TUNED"},
+        {"project_id": "p", "location": "l", "psc_address": "10.0.0.1"},
+    )
+
+    query = {"messages": [{"role": "tool", "content": "x"}]}
+    with pytest.raises(TypeError) as exc:
+        llm.process(query, settings={}, trace={})
+    assert "Unsupported message role: tool" in str(exc.value)
+
+
+def test_instruction_tuned_rejects_non_text_content(monkeypatch):
+    module = _load_gemma_4_module()
+    llm = module.MyLLM()
+
+    monkeypatch.setattr(module.vertex_auth, "build_credentials", lambda plugin_config: None)
+    monkeypatch.setattr(module.vertex_client, "init_aiplatform", lambda **kwargs: None)
+    monkeypatch.setattr(module.vertex_client, "build_endpoint", lambda **kwargs: MagicMock())
+
+    llm.set_config(
+        {"endpoint_id": "eid", "model_variant": "INSTRUCTION_TUNED"},
+        {"project_id": "p", "location": "l", "psc_address": "10.0.0.1"},
+    )
+
+    query = {"messages": [{"role": "user", "content": [{"type": "text", "text": "x"}]}]}
+    with pytest.raises(TypeError) as exc:
+        llm.process(query, settings={}, trace={})
+    assert "Only text message content is supported" in str(exc.value)

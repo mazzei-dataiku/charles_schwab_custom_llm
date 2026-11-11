@@ -74,39 +74,55 @@ class MyLLM(BaseLLM):
         )
 
     def build_prompt(self, query) -> str:
-        # Serving contract is not yet verified; do not inject Gemma 1.x special tokens.
-        # For now use plain text: concatenate user messages.
-        # This keeps behavior explicit and avoids repeated <start_of_turn> markers observed.
         msgs = query.get("messages") or []
         parts = []
         for m in msgs:
-            if m.get("role") == "system":
-                parts.append(m.get("content", ""))
-            elif m.get("role") == "user":
-                parts.append(m.get("content", ""))
-            elif m.get("role") == "assistant":
-                # include assistant history as raw text (best-effort)
-                parts.append(m.get("content", ""))
-            else:
-                parts.append(m.get("content", ""))
+            content = m.get("content", "")
+            parts.append(content if isinstance(content, str) else str(content))
         return "\n\n".join([p.strip() for p in parts if p is not None and str(p).strip()])
 
-    def build_instances(self, prompt: str):
-        # Not verified yet for Gemma 4 serving containers. We keep the vLLM-style
-        # payload for now to enable live investigation, without touching shared code.
+    def _validate_role(self, role: str) -> str:
+        role = (role or "").strip()
+        if role not in {"system", "user", "assistant"}:
+            raise TypeError(f"Unsupported message role: {role}")
+        return role
+
+    def build_base_instances(self, prompt: str):
+        return [{"prompt": prompt, "max_tokens": self._config["max_tokens"]}]
+
+    def build_chat_instances(self, query):
+        messages = []
+        for message in query.get("messages") or []:
+            role = self._validate_role(message.get("role"))
+            content = message.get("content")
+            if not isinstance(content, str):
+                raise TypeError("Only text message content is supported")
+            messages.append(
+                {
+                    "role": role,
+                    "content": [{"type": "text", "text": content}],
+                }
+            )
+
         return [
             {
-                "prompt": prompt,
+                "@requestFormat": "chatCompletions",
+                "messages": messages,
                 "max_tokens": self._config["max_tokens"],
-                "temperature": self._config["temperature"],
-                "top_p": self._config["topp"],
-                "raw_response": True,
             }
         ]
 
+    def build_instances(self, query, prompt: str):
+        variant = self._config["model_variant"]
+        if variant == "BASE":
+            return self.build_base_instances(prompt)
+        if variant == "INSTRUCTION_TUNED":
+            return self.build_chat_instances(query)
+        raise TypeError(f"Unsupported model variant: {variant}")
+
     def process(self, query, settings, trace):
         prompt = self.build_prompt(query)
-        instances = self.build_instances(prompt)
+        instances = self.build_instances(query, prompt)
 
         response = vertex_client.predict(
             endpoint=self._endpoint,
@@ -130,4 +146,3 @@ class MyLLM(BaseLLM):
                 "toolCalls": [],
             }
         }
-
