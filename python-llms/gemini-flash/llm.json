@@ -2,13 +2,13 @@
 {
   "meta" : {
     // label: name of the LLM as displayed, should be short
-    "label": "Custom LLM gemini-flash",
+    "label": "Vertex AI Gemini Flash",
 
     // description: longer string to help end users understand what this LLM does.
-    "description": "This is the description of the custom LLM gemini-flash",
+    "description": "Google Vertex AI managed Gemini publisher model (generateContent REST API).",
 
     // icon: must be one of the FontAwesome 5.15.4 icons, complete list here at https://fontawesome.com/v5/docs/
-    "icon": "fas fa-magic"
+    "icon": "fab fa-google"
   },
 
   /* params:
@@ -23,5 +23,29 @@
   For the full list and for more details, see the documentation: https://doc.dataiku.com/dss/latest/plugins/reference/params.html
   */
   "params": [
+    {
+      "name": "model_id",
+      "label": "Model ID",
+      "type": "STRING",
+      "description": "Vertex publisher model ID (e.g. gemini-3.8-flash).",
+      "mandatory": false,
+      "defaultValue": "gemini-3.8-flash"
+    },
+    {
+      "name": "max_output_tokens",
+      "label": "Max output tokens",
+      "type": "INT",
+      "description": "Maximum number of tokens to generate.",
+      "mandatory": false,
+      "defaultValue": 1024
+    },
+    {
+      "name": "temperature",
+      "label": "Temperature",
+      "type": "DOUBLE",
+      "description": "Controls randomness of outputs.",
+      "mandatory": false,
+      "defaultValue": 0.2
+    }
   ]
 }

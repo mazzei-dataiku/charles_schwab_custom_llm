@@ -33,12 +33,60 @@ def _stub_google_modules(monkeypatch):
     google_cloud_aiplatform.PrivateEndpoint = object
 
     monkeypatch.setitem(sys.modules, "google", google)
+    # Stub google.auth and its request transport (used by vertexai_shared.gemini)
+    google_auth = type(sys)("google.auth")
+    google_auth_transport = type(sys)("google.auth.transport")
+    google_auth_transport_requests = type(sys)("google.auth.transport.requests")
+
+    class _AuthRequest:
+        pass
+
+    def _default(scopes=None):
+        class _Creds:
+            valid = False
+            token = None
+
+            def refresh(self, request):
+                self.valid = True
+                self.token = "token_from_adc"
+
+        return _Creds(), "project"
+
+    google_auth.default = _default
+    google_auth_transport_requests.Request = _AuthRequest
+
+    monkeypatch.setitem(sys.modules, "google.auth", google_auth)
+    monkeypatch.setitem(sys.modules, "google.auth.transport", google_auth_transport)
+    monkeypatch.setitem(
+        sys.modules, "google.auth.transport.requests", google_auth_transport_requests
+    )
+
     monkeypatch.setitem(sys.modules, "google.oauth2", google_oauth2)
     monkeypatch.setitem(
         sys.modules, "google.oauth2.service_account", google_oauth2_service_account
     )
     monkeypatch.setitem(sys.modules, "google.cloud", google_cloud)
     monkeypatch.setitem(sys.modules, "google.cloud.aiplatform", google_cloud_aiplatform)
+
+    # Stub requests for REST calls (used by vertexai_shared.gemini)
+    requests = type(sys)("requests")
+
+    class _Response:
+        ok = True
+        status_code = 200
+        text = ""
+
+        def __init__(self, payload=None):
+            self._payload = payload or {}
+
+        def json(self):
+            return self._payload
+
+    def _post(url, headers=None, json=None, timeout=None):
+        return _Response({})
+
+    requests.post = _post
+    monkeypatch.setitem(sys.modules, "requests", requests)
 
 
 @pytest.fixture(autouse=True)
