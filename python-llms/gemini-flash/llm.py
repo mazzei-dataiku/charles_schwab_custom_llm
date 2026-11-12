@@ -66,13 +66,18 @@ class MyLLM(BaseLLM):
         return payload
 
     def _invoke(self, payload: dict):
+        # Track invocation progress for safe diagnostics.
+        self._last_invoke_reached = True
+        self._last_invoke_completed = False
         url = vertex_gemini.build_generate_content_url(
             project_id=self._plugin_config["project_id"],
             location=self._plugin_config["location"],
             model_id=self._config["model_id"],
         )
         bearer = vertex_gemini.get_bearer_token(credentials=self._credentials)
-        return vertex_gemini.invoke_generate_content(url=url, bearer_token=bearer, payload=payload)
+        out = vertex_gemini.invoke_generate_content(url=url, bearer_token=bearer, payload=payload)
+        self._last_invoke_completed = True
+        return out
 
     def process(self, query, settings, trace):
         # Non-streaming behavior: return text only.
@@ -82,7 +87,7 @@ class MyLLM(BaseLLM):
         payload = self._build_payload(query, settings, include_tool_config=True)
         response_json = self._invoke(payload)
 
-        text, tool_calls = vertex_gemini.parse_generate_content_response(response_json)
+        text, tool_calls = vertex_gemini.parse_or_raise_empty(response_json)
         return {"text": text or "", "toolCalls": tool_calls}
 
     def process_stream(self, query, settings, trace):
@@ -96,7 +101,7 @@ class MyLLM(BaseLLM):
             # Invoke once (without tool outputs) to discover tool call IDs/names if needed.
             # This keeps behavior explicit rather than guessing call association.
             first_response = self._invoke(payload)
-            _, tool_calls = vertex_gemini.parse_generate_content_response(first_response)
+            _, tool_calls = vertex_gemini.parse_or_raise_empty(first_response)
             if tool_calls:
                 # Surface tool calls and stop; agent will call again with toolOutputs.
                 yield from stream_tool_calls(tool_calls=tool_calls, footer={})
@@ -110,7 +115,7 @@ class MyLLM(BaseLLM):
                 payload["contents"].extend(tool_contents)
 
         response_json = self._invoke(payload)
-        text, tool_calls = vertex_gemini.parse_generate_content_response(response_json)
+        text, tool_calls = vertex_gemini.parse_or_raise_empty(response_json)
 
         if tool_calls:
             yield from stream_tool_calls(tool_calls=tool_calls, footer={})

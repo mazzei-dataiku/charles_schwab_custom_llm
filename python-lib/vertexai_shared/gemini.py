@@ -255,11 +255,71 @@ def invoke_generate_content(*, url: str, bearer_token: str, payload: dict, timeo
     requests = _requests_module()
     resp = requests.post(url, headers=headers, json=payload, timeout=timeout_s)
     if getattr(resp, "ok", False):
-        return resp.json()
+        out = resp.json()
+        if isinstance(out, dict):
+            out.setdefault("_diagnostics", {})
+            out["_diagnostics"]["http_status"] = getattr(resp, "status_code", None)
+        return out
 
     text = getattr(resp, "text", "")
     status = getattr(resp, "status_code", "unknown")
     raise GeminiAPIError(f"Vertex generateContent failed ({status}): {text}")
+
+
+def build_empty_response_diagnostics(response_json: dict):
+    """Build safe diagnostics for unexpected/empty generateContent responses."""
+
+    if not isinstance(response_json, dict):
+        return {
+            "top_level_keys": [],
+            "candidates": 0,
+            "finish_reasons": [],
+            "prompt_feedback_block_reason": None,
+            "text_parts": 0,
+            "function_call_parts": 0,
+        }
+
+    candidates = response_json.get("candidates") or []
+    if not isinstance(candidates, list):
+        candidates = []
+
+    finish_reasons = []
+    text_parts = 0
+    function_call_parts = 0
+
+    for cand in candidates:
+        if not isinstance(cand, dict):
+            continue
+        fr = cand.get("finishReason")
+        if fr is not None:
+            finish_reasons.append(fr)
+        content = cand.get("content") or {}
+        parts = content.get("parts") or []
+        if not isinstance(parts, list):
+            continue
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            if part.get("text"):
+                text_parts += 1
+            if part.get("functionCall"):
+                function_call_parts += 1
+
+    prompt_feedback = response_json.get("promptFeedback") or {}
+    block_reason = None
+    if isinstance(prompt_feedback, dict):
+        block_reason = prompt_feedback.get("blockReason")
+
+    diagnostics = {
+        "http_status": (response_json.get("_diagnostics") or {}).get("http_status"),
+        "top_level_keys": sorted([k for k in response_json.keys() if not k.startswith("_")]),
+        "candidates": len(candidates),
+        "finish_reasons": finish_reasons,
+        "prompt_feedback_block_reason": block_reason,
+        "text_parts": text_parts,
+        "function_call_parts": function_call_parts,
+    }
+    return diagnostics
 
 
 def parse_generate_content_response(response_json: dict):
@@ -318,3 +378,16 @@ def parse_generate_content_response(response_json: dict):
 
     return out_text, tool_calls
 
+
+def parse_or_raise_empty(response_json: dict):
+    """Parse response and raise a diagnostic error if it is empty."""
+
+    text, tool_calls = parse_generate_content_response(response_json)
+    if (text is not None and str(text).strip()) or tool_calls:
+        return text, tool_calls
+
+    diag = build_empty_response_diagnostics(response_json)
+    raise GeminiAPIError(
+        "Empty Vertex generateContent response (no text parts, no function calls). "
+        f"Diagnostics: {json.dumps(diag, sort_keys=True)}"
+    )

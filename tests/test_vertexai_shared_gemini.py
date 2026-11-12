@@ -95,6 +95,37 @@ def test_parse_generate_content_response_text_and_function_call():
     assert json.loads(tool_calls[0]["function"]["arguments"]) == {"a": 1}
 
 
+def test_parse_or_raise_empty_candidates_raises_diagnostics():
+    from vertexai_shared import gemini
+
+    with pytest.raises(gemini.GeminiAPIError) as exc:
+        gemini.parse_or_raise_empty({"candidates": []})
+    msg = str(exc.value)
+    assert "Empty Vertex generateContent response" in msg
+    assert "\"candidates\": 0" in msg
+
+
+def test_parse_or_raise_blocked_prompt_feedback_includes_block_reason():
+    from vertexai_shared import gemini
+
+    with pytest.raises(gemini.GeminiAPIError) as exc:
+        gemini.parse_or_raise_empty(
+            {
+                "promptFeedback": {"blockReason": "SAFETY"},
+                "candidates": [],
+            }
+        )
+    assert "SAFETY" in str(exc.value)
+
+
+def test_parse_or_raise_candidate_without_parts_raises_with_finish_reason():
+    from vertexai_shared import gemini
+
+    with pytest.raises(gemini.GeminiAPIError) as exc:
+        gemini.parse_or_raise_empty({"candidates": [{"finishReason": "STOP"}]})
+    assert "STOP" in str(exc.value)
+
+
 def test_get_bearer_token_refreshes_custom_credentials():
     from vertexai_shared import gemini
 
@@ -167,4 +198,3 @@ def test_invoke_generate_content_raises_on_http_error(monkeypatch):
             payload={},
         )
     assert "Vertex generateContent failed" in str(exc.value)
-
