@@ -91,6 +91,7 @@ class MyLLM(BaseLLM):
         return {"text": text or "", "toolCalls": tool_calls}
 
     def process_stream(self, query, settings, trace):
+        raise RuntimeError("GEMINI_FLASH_STREAM_DIAGNOSTIC_001")
         # Streaming-first tool calling: if the model returns tool calls,
         # emit them as a dedicated Dataiku toolCalls chunk.
         payload = self._build_payload(query, settings, include_tool_config=True)
