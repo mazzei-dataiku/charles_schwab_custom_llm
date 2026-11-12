@@ -1,5 +1,7 @@
 # This file is the implementation of custom LLM gemini-flash
 
+import logging
+
 from dataiku.llm.python import BaseLLM
 
 from vertexai_shared import auth as vertex_auth
@@ -91,12 +93,25 @@ class MyLLM(BaseLLM):
         return {"text": text or "", "toolCalls": tool_calls}
 
     def process_stream(self, query, settings, trace):
-        yield {"chunk": {"text": "GEMINI_FLASH_STREAM_ACTIVE_001"}}
-        yield {"footer": {}}
-        return
+        logger = logging.getLogger(__name__)
+
+        messages = query.get("messages") or []
+        tools = settings.get("tools") if isinstance(settings, dict) else None
+        tool_count = len(tools) if isinstance(tools, list) else 0
+
+        logger.info(
+            "GeminiFlash.process_stream: enter messages=%s tools=%s",
+            len(messages),
+            tool_count,
+        )
         # Streaming-first tool calling: if the model returns tool calls,
         # emit them as a dedicated Dataiku toolCalls chunk.
-        payload = self._build_payload(query, settings, include_tool_config=True)
+        try:
+            payload = self._build_payload(query, settings, include_tool_config=True)
+            logger.info("GeminiFlash.process_stream: payload_built")
+        except Exception:
+            logger.exception("GeminiFlash.process_stream: payload_build_failed")
+            raise
 
         # If the incoming query contains tool outputs, include them as a functionResponse
         # content. Note: native function-call roundtrip semantics are not fully verified.
@@ -117,8 +132,31 @@ class MyLLM(BaseLLM):
             if tool_contents:
                 payload["contents"].extend(tool_contents)
 
-        response_json = self._invoke(payload)
-        text, tool_calls = vertex_gemini.parse_or_raise_empty(response_json)
+        try:
+            logger.info("GeminiFlash.process_stream: invoking_vertex")
+            response_json = self._invoke(payload)
+            logger.info("GeminiFlash.process_stream: vertex_completed")
+
+            diag = vertex_gemini.build_empty_response_diagnostics(response_json)
+            logger.info(
+                "GeminiFlash.process_stream: vertex_diag http_status=%s candidates=%s finish_reasons=%s block_reason=%s text_parts=%s function_call_parts=%s",
+                diag.get("http_status"),
+                diag.get("candidates"),
+                diag.get("finish_reasons"),
+                diag.get("prompt_feedback_block_reason"),
+                diag.get("text_parts"),
+                diag.get("function_call_parts"),
+            )
+
+            text, tool_calls = vertex_gemini.parse_or_raise_empty(response_json)
+            logger.info(
+                "GeminiFlash.process_stream: parsed text_len=%s tool_calls=%s",
+                len(text or ""),
+                len(tool_calls or []),
+            )
+        except Exception:
+            logger.exception("GeminiFlash.process_stream: vertex_or_parse_failed")
+            raise
 
         if tool_calls:
             yield from stream_tool_calls(tool_calls=tool_calls, footer={})

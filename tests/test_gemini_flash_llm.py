@@ -2,6 +2,8 @@ import importlib.util
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 
 def _load_gemini_flash_module():
     llm_path = (
@@ -106,3 +108,35 @@ def test_process_stream_emits_tool_calls(monkeypatch):
         )
     )
     assert events[0]["chunk"].get("toolCalls")
+
+
+def test_process_stream_logs_and_reraises_on_empty_response(monkeypatch, caplog):
+    module = _load_gemini_flash_module()
+    llm = module.MyLLM()
+
+    monkeypatch.setattr(module.vertex_auth, "build_credentials", lambda plugin_config: "creds")
+    monkeypatch.setattr(module.vertex_gemini, "build_generate_content_url", lambda **kwargs: "url")
+    monkeypatch.setattr(module.vertex_gemini, "get_bearer_token", lambda **kwargs: "token")
+    monkeypatch.setattr(
+        module.vertex_gemini,
+        "invoke_generate_content",
+        lambda **kwargs: {"_diagnostics": {"http_status": 200}, "candidates": []},
+    )
+
+    llm.set_config(
+        config={"max_output_tokens": 10, "temperature": 0.1},
+        plugin_config={"project_id": "p", "location": "global"},
+    )
+
+    with caplog.at_level("INFO"):
+        with pytest.raises(module.vertex_gemini.GeminiAPIError):
+            list(
+                llm.process_stream(
+                    query={"messages": [{"role": "user", "content": "hi"}]},
+                    settings={"tools": []},
+                    trace={},
+                )
+            )
+
+    assert "GeminiFlash.process_stream: enter" in caplog.text
+    assert "GeminiFlash.process_stream: vertex_diag" in caplog.text
