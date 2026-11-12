@@ -32,6 +32,14 @@
       "defaultValue": "gemini-3.8-flash"
     },
     {
+      "name": "location",
+      "label": "Location",
+      "type": "STRING",
+      "description": "Vertex AI location for Gemini publisher model routing (use global by default).",
+      "mandatory": false,
+      "defaultValue": "global"
+    },
+    {
       "name": "max_output_tokens",
       "label": "Max output tokens",
       "type": "INT",

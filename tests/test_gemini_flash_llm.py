@@ -21,10 +21,23 @@ def test_set_config_defaults_model_and_location(monkeypatch):
     monkeypatch.setattr(module.vertex_auth, "build_credentials", lambda plugin_config: "creds")
     llm.set_config(
         config={},
-        plugin_config={"project_id": "p", "location": "global"},
+        plugin_config={"project_id": "p", "location": "us-central1"},
     )
     assert llm._config["model_id"] == "gemini-3.8-flash"
+    # Default Gemini routing must be global, not inherited from plugin location.
     assert llm._plugin_config["location"] == "global"
+
+
+def test_set_config_allows_explicit_location_override(monkeypatch):
+    module = _load_gemini_flash_module()
+    llm = module.MyLLM()
+
+    monkeypatch.setattr(module.vertex_auth, "build_credentials", lambda plugin_config: "creds")
+    llm.set_config(
+        config={"location": "europe-west4"},
+        plugin_config={"project_id": "p", "location": "us-central1"},
+    )
+    assert llm._plugin_config["location"] == "europe-west4"
 
 
 def test_process_builds_payload_and_returns_text(monkeypatch):
@@ -33,7 +46,8 @@ def test_process_builds_payload_and_returns_text(monkeypatch):
 
     monkeypatch.setattr(module.vertex_auth, "build_credentials", lambda plugin_config: "creds")
 
-    monkeypatch.setattr(module.vertex_gemini, "build_generate_content_url", lambda **kwargs: "url")
+    build_url_mock = MagicMock(return_value="url")
+    monkeypatch.setattr(module.vertex_gemini, "build_generate_content_url", build_url_mock)
     monkeypatch.setattr(module.vertex_gemini, "get_bearer_token", lambda **kwargs: "token")
 
     invoke_mock = MagicMock(return_value={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
@@ -41,7 +55,7 @@ def test_process_builds_payload_and_returns_text(monkeypatch):
 
     llm.set_config(
         config={"max_output_tokens": 10, "temperature": 0.1},
-        plugin_config={"project_id": "p", "location": "global"},
+        plugin_config={"project_id": "p", "location": "us-central1"},
     )
 
     out = llm.process(
@@ -55,6 +69,9 @@ def test_process_builds_payload_and_returns_text(monkeypatch):
     payload = invoke_mock.call_args.kwargs["payload"]
     assert payload["systemInstruction"]["parts"][0]["text"] == "s"
     assert payload["contents"][0]["role"] == "user"
+
+    # Location used for URL must be global by default
+    assert build_url_mock.call_args.kwargs["location"] == "global"
 
 
 def test_process_stream_emits_tool_calls(monkeypatch):
@@ -89,4 +106,3 @@ def test_process_stream_emits_tool_calls(monkeypatch):
         )
     )
     assert events[0]["chunk"].get("toolCalls")
-

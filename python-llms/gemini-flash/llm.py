@@ -31,10 +31,15 @@ class MyLLM(BaseLLM):
         if not isinstance(temperature, (int, float)) or temperature < 0:
             raise TypeError("Invalid model setting: temperature must be >= 0")
 
-        location = (plugin_config.get("location") or "").strip() or "global"
+        # Gemini publisher models should default to global routing.
+        # Precedence: model setting `location` (default global) overrides plugin `location`.
+        gemini_location = _get_with_default("location", "global")
+        if not isinstance(gemini_location, str) or not gemini_location.strip():
+            raise TypeError("Invalid model setting: location must be a non-empty string")
+        gemini_location = gemini_location.strip()
 
         self._plugin_config = dict(plugin_config)
-        self._plugin_config["location"] = location
+        self._plugin_config["location"] = gemini_location
         self._config = dict(config or {})
         self._config["max_output_tokens"] = int(max_output_tokens)
         self._config["temperature"] = float(temperature)
@@ -112,4 +117,3 @@ class MyLLM(BaseLLM):
             return
 
         yield from stream_single_chunk(text=text or "", footer={})
-
