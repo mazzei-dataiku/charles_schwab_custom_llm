@@ -25,6 +25,9 @@ class MyLLM(BaseLLM):
 
         max_output_tokens = _get_with_default("max_output_tokens", 1024)
         temperature = _get_with_default("temperature", 0.2)
+        thought_signature_compat_mode = _get_with_default(
+            "thought_signature_compat_mode", False
+        )
 
         if not isinstance(max_output_tokens, int) or max_output_tokens <= 0:
             raise TypeError(
@@ -32,6 +35,10 @@ class MyLLM(BaseLLM):
             )
         if not isinstance(temperature, (int, float)) or temperature < 0:
             raise TypeError("Invalid model setting: temperature must be >= 0")
+        if not isinstance(thought_signature_compat_mode, bool):
+            raise TypeError(
+                "Invalid model setting: thought_signature_compat_mode must be a boolean"
+            )
 
         # Gemini publisher models should default to global routing.
         # Precedence: model setting `location` (default global) overrides plugin `location`.
@@ -46,13 +53,21 @@ class MyLLM(BaseLLM):
         self._config["max_output_tokens"] = int(max_output_tokens)
         self._config["temperature"] = float(temperature)
         self._config["model_id"] = (self._config.get("model_id") or "gemini-3.8-flash").strip()
+        self._config["thought_signature_compat_mode"] = bool(
+            thought_signature_compat_mode
+        )
 
         self._credentials = vertex_auth.build_credentials(self._plugin_config)
 
     def _build_payload(self, query, settings, *, include_tool_config: bool):
         messages = query.get("messages") or []
 
-        payload = vertex_gemini.dataiku_messages_to_gemini(messages=messages)
+        payload = vertex_gemini.dataiku_messages_to_gemini(
+            messages=messages,
+            thought_signature_compat_mode=self._config.get(
+                "thought_signature_compat_mode", False
+            ),
+        )
 
         tools = settings.get("tools") if isinstance(settings, dict) else None
         if include_tool_config and tools is not None:

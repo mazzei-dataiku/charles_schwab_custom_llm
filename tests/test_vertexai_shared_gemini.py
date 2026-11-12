@@ -71,6 +71,56 @@ def test_dataiku_messages_to_gemini_tool_calls_and_outputs_single():
     assert payload["contents"][1]["parts"][0]["functionResponse"]["name"] == "t"
 
 
+def test_dataiku_messages_to_gemini_thought_signature_compat_disabled_by_default():
+    from vertexai_shared import gemini
+
+    payload = gemini.dataiku_messages_to_gemini(
+        messages=[
+            {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "t", "arguments": "{}"},
+                    }
+                ],
+            }
+        ]
+    )
+    assert "thoughtSignature" not in payload["contents"][0]["parts"][0]
+
+
+def test_dataiku_messages_to_gemini_thought_signature_compat_enabled_on_first_parallel_call_only():
+    from vertexai_shared import gemini
+
+    payload = gemini.dataiku_messages_to_gemini(
+        messages=[
+            {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "t", "arguments": "{}"},
+                    },
+                    {
+                        "id": "c2",
+                        "type": "function",
+                        "function": {"name": "u", "arguments": "{}"},
+                    },
+                ],
+            }
+        ],
+        thought_signature_compat_mode=True,
+    )
+    parts = payload["contents"][0]["parts"]
+    assert parts[0]["thoughtSignature"] == "skip_thought_signature_validator"
+    assert "thoughtSignature" not in parts[1]
+
+
 def test_dataiku_messages_to_gemini_tool_calls_and_outputs_multiple_and_repeated_names():
     from vertexai_shared import gemini
 

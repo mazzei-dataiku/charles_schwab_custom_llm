@@ -54,6 +54,14 @@
       "description": "Controls randomness of outputs.",
       "mandatory": false,
       "defaultValue": 0.2
+    },
+    {
+      "name": "thought_signature_compat_mode",
+      "label": "Thought signature compatibility mode",
+      "type": "BOOLEAN",
+      "description": "When enabled, inserts the documented skip_thought_signature_validator sentinel when replaying tool calls across agent iterations.",
+      "mandatory": false,
+      "defaultValue": false
     }
   ]
 }

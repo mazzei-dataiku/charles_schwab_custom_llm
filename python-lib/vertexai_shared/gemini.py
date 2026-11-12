@@ -77,7 +77,10 @@ def get_bearer_token(*, credentials) -> str:
     return token
 
 
-def dataiku_messages_to_gemini(*, messages):
+_THOUGHT_SIGNATURE_COMPAT_SENTINEL = "skip_thought_signature_validator"
+
+
+def dataiku_messages_to_gemini(*, messages, thought_signature_compat_mode: bool = False):
     """Translate Dataiku chat messages into Gemini generateContent payload."""
 
     if messages is None:
@@ -129,7 +132,16 @@ def dataiku_messages_to_gemini(*, messages):
                 ) from exc
 
             call_id_to_function_name[call_id] = name
-            parts.append({"functionCall": {"name": name, "args": args_obj}})
+
+            function_call_part = {"functionCall": {"name": name, "args": args_obj}}
+
+            # Compatibility mode for Gemini thought-signature replay.
+            # Documentation: https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/thinking/thought-signatures
+            # When replaying tool calls, only the first parallel tool call should carry a thought signature.
+            if thought_signature_compat_mode and i == 0:
+                function_call_part["thoughtSignature"] = _THOUGHT_SIGNATURE_COMPAT_SENTINEL
+
+            parts.append(function_call_part)
 
         return parts
     for message in messages:
