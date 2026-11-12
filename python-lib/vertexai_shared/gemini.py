@@ -87,6 +87,51 @@ def dataiku_messages_to_gemini(*, messages):
 
     system_chunks = []
     contents = []
+
+    # Track assistant tool calls for later tool output resolution.
+    # Dataiku represents tool calls as OpenAI-like objects in assistant messages.
+    call_id_to_function_name = {}
+
+    def _parse_tool_calls(message_obj: dict, path: str):
+        tool_calls = message_obj.get("toolCalls")
+        if tool_calls is None:
+            return []
+        if not isinstance(tool_calls, list):
+            raise TypeError(f"Invalid {path}.toolCalls: must be a list")
+
+        parts = []
+        for i, tool_call in enumerate(tool_calls):
+            if not isinstance(tool_call, dict):
+                raise TypeError(f"Invalid {path}.toolCalls[{i}]: must be an object")
+            if tool_call.get("type") != "function":
+                raise TypeError(
+                    f"Unsupported tool call type at {path}.toolCalls[{i}]: {tool_call.get('type')}"
+                )
+            call_id = tool_call.get("id")
+            fn = tool_call.get("function") or {}
+            name = fn.get("name")
+            arguments = fn.get("arguments")
+            if not call_id or not isinstance(call_id, str):
+                raise TypeError(f"Invalid {path}.toolCalls[{i}].id")
+            if not name or not isinstance(name, str):
+                raise TypeError(f"Invalid {path}.toolCalls[{i}].function.name")
+            if arguments is None:
+                arguments = "{}"
+            if not isinstance(arguments, str):
+                raise TypeError(f"Invalid {path}.toolCalls[{i}].function.arguments")
+
+            # Parse JSON string arguments to an object for Gemini functionCall args.
+            try:
+                args_obj = json.loads(arguments) if arguments.strip() else {}
+            except json.JSONDecodeError as exc:
+                raise TypeError(
+                    f"Invalid JSON in {path}.toolCalls[{i}].function.arguments"
+                ) from exc
+
+            call_id_to_function_name[call_id] = name
+            parts.append({"functionCall": {"name": name, "args": args_obj}})
+
+        return parts
     for message in messages:
         if not isinstance(message, dict):
             raise TypeError("Invalid message: must be an object")
@@ -109,14 +154,52 @@ def dataiku_messages_to_gemini(*, messages):
             continue
 
         if role == "assistant":
-            contents.append({"role": "model", "parts": [{"text": content}]})
+            tool_call_parts = _parse_tool_calls(message, "messages")
+            parts = []
+            if content.strip():
+                parts.append({"text": content})
+            parts.extend(tool_call_parts)
+            contents.append({"role": "model", "parts": parts or [{"text": ""}]})
             continue
 
         if role == "tool":
-            # Tool outputs are handled by dataiku_tool_outputs_to_gemini
-            raise TypeError(
-                "Tool messages must be translated with dataiku_tool_outputs_to_gemini"
-            )
+            tool_outputs = message.get("toolOutputs") or []
+            if not isinstance(tool_outputs, list):
+                raise TypeError("Invalid toolOutputs: must be a list")
+
+            parts = []
+            for i, tool_output in enumerate(tool_outputs):
+                if not isinstance(tool_output, dict):
+                    raise TypeError(
+                        f"Invalid toolOutputs[{i}]: each entry must be an object"
+                    )
+                call_id = tool_output.get("callId")
+                output = tool_output.get("output")
+                if not call_id or not isinstance(call_id, str):
+                    raise TypeError("Invalid toolOutputs: missing callId")
+                if output is None:
+                    output = ""
+                if not isinstance(output, str):
+                    raise TypeError("Invalid toolOutputs: output must be a string")
+
+                fn_name = call_id_to_function_name.get(call_id)
+                if not fn_name:
+                    raise TypeError(
+                        f"Unmatched tool output callId '{call_id}': missing preceding assistant tool call"
+                    )
+
+                parts.append(
+                    {
+                        "functionResponse": {
+                            "name": fn_name,
+                            "response": {"output": output, "callId": call_id},
+                        }
+                    }
+                )
+
+            # Tool responses must come from the "user" role.
+            contents.append({"role": "user", "parts": parts})
+            continue
 
         raise TypeError(f"Unsupported message role: {role}")
 

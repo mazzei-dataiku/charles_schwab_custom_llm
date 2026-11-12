@@ -113,24 +113,9 @@ class MyLLM(BaseLLM):
             logger.exception("GeminiFlash.process_stream: payload_build_failed")
             raise
 
-        # If the incoming query contains tool outputs, include them as a functionResponse
-        # content. Note: native function-call roundtrip semantics are not fully verified.
-        if any((m.get("role") == "tool") for m in (query.get("messages") or [])):
-            # Invoke once (without tool outputs) to discover tool call IDs/names if needed.
-            # This keeps behavior explicit rather than guessing call association.
-            first_response = self._invoke(payload)
-            _, tool_calls = vertex_gemini.parse_or_raise_empty(first_response)
-            if tool_calls:
-                # Surface tool calls and stop; agent will call again with toolOutputs.
-                yield from stream_tool_calls(tool_calls=tool_calls, footer={})
-                return
-
-            # No tool calls; proceed by adding tool outputs to the payload.
-            tool_contents = vertex_gemini.dataiku_tool_outputs_to_gemini(
-                query_messages=query.get("messages") or [], prior_tool_calls=[]
-            )
-            if tool_contents:
-                payload["contents"].extend(tool_contents)
+        # Second-iteration tool execution is handled by dataiku_messages_to_gemini(),
+        # which now converts assistant toolCalls and tool toolOutputs into native
+        # Gemini functionCall/functionResponse parts.
 
         try:
             logger.info("GeminiFlash.process_stream: invoking_vertex")

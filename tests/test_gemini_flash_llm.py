@@ -110,6 +110,57 @@ def test_process_stream_emits_tool_calls(monkeypatch):
     assert events[0]["chunk"].get("toolCalls")
 
 
+def test_second_iteration_invokes_vertex_once_with_tool_calls_and_outputs(monkeypatch):
+    module = _load_gemini_flash_module()
+    llm = module.MyLLM()
+
+    monkeypatch.setattr(module.vertex_auth, "build_credentials", lambda plugin_config: "creds")
+    monkeypatch.setattr(module.vertex_gemini, "build_generate_content_url", lambda **kwargs: "url")
+    monkeypatch.setattr(module.vertex_gemini, "get_bearer_token", lambda **kwargs: "token")
+
+    invoke_mock = MagicMock(
+        return_value={"candidates": [{"content": {"parts": [{"text": "done"}]}}]}
+    )
+    monkeypatch.setattr(module.vertex_gemini, "invoke_generate_content", invoke_mock)
+
+    llm.set_config(
+        config={"max_output_tokens": 10, "temperature": 0.1},
+        plugin_config={"project_id": "p", "location": "global"},
+    )
+
+    query = {
+        "messages": [
+            {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "t", "arguments": "{}"},
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "toolOutputs": [{"callId": "c1", "output": "ok"}],
+            },
+            {"role": "user", "content": "summarize"},
+        ]
+    }
+
+    events = list(llm.process_stream(query=query, settings={"tools": []}, trace={}))
+    assert invoke_mock.call_count == 1
+    assert events[0]["chunk"]["text"] == "done"
+
+    sent_payload = invoke_mock.call_args.kwargs["payload"]
+    contents = sent_payload["contents"]
+    assert contents[0]["role"] == "model"
+    assert contents[0]["parts"][0]["functionCall"]["name"] == "t"
+    assert contents[1]["role"] == "user"
+    assert contents[1]["parts"][0]["functionResponse"]["name"] == "t"
+
+
 def test_process_stream_logs_and_reraises_on_empty_response(monkeypatch, caplog):
     module = _load_gemini_flash_module()
     llm = module.MyLLM()

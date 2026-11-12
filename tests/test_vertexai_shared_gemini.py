@@ -42,6 +42,106 @@ def test_dataiku_messages_to_gemini_system_and_history():
     assert payload["contents"][2]["role"] == "user"
 
 
+def test_dataiku_messages_to_gemini_tool_calls_and_outputs_single():
+    from vertexai_shared import gemini
+
+    payload = gemini.dataiku_messages_to_gemini(
+        messages=[
+            {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "t", "arguments": "{\"a\": 1}"},
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "toolOutputs": [{"callId": "call_1", "output": "ok"}],
+            },
+        ]
+    )
+
+    assert payload["contents"][0]["role"] == "model"
+    assert payload["contents"][0]["parts"][0]["functionCall"]["name"] == "t"
+    assert payload["contents"][1]["role"] == "user"
+    assert payload["contents"][1]["parts"][0]["functionResponse"]["name"] == "t"
+
+
+def test_dataiku_messages_to_gemini_tool_calls_and_outputs_multiple_and_repeated_names():
+    from vertexai_shared import gemini
+
+    payload = gemini.dataiku_messages_to_gemini(
+        messages=[
+            {
+                "role": "assistant",
+                "content": "",
+                "toolCalls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {"name": "t", "arguments": "{}"},
+                    },
+                    {
+                        "id": "c2",
+                        "type": "function",
+                        "function": {"name": "t", "arguments": "{\"q\":\"x\"}"},
+                    },
+                    {
+                        "id": "c3",
+                        "type": "function",
+                        "function": {"name": "u", "arguments": "{}"},
+                    },
+                ],
+            },
+            {
+                "role": "tool",
+                "toolOutputs": [
+                    {"callId": "c1", "output": "o1"},
+                    {"callId": "c2", "output": "o2"},
+                    {"callId": "c3", "output": "err: boom"},
+                ],
+            },
+        ]
+    )
+
+    # Order preserved
+    model_parts = payload["contents"][0]["parts"]
+    assert [p["functionCall"]["name"] for p in model_parts] == ["t", "t", "u"]
+
+    user_parts = payload["contents"][1]["parts"]
+    assert [p["functionResponse"]["name"] for p in user_parts] == ["t", "t", "u"]
+
+
+def test_dataiku_messages_to_gemini_tool_outputs_requires_matching_call_id():
+    from vertexai_shared import gemini
+
+    with pytest.raises(TypeError) as exc:
+        gemini.dataiku_messages_to_gemini(
+            messages=[
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "toolCalls": [
+                        {
+                            "id": "c1",
+                            "type": "function",
+                            "function": {"name": "t", "arguments": "{}"},
+                        }
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "toolOutputs": [{"callId": "nope", "output": "x"}],
+                },
+            ]
+        )
+    assert "Unmatched tool output callId" in str(exc.value)
+
+
 def test_dataiku_tools_to_gemini_declarations():
     from vertexai_shared import gemini
 
