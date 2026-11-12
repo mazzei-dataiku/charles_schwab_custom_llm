@@ -127,6 +127,93 @@ def dataiku_messages_to_gemini(*, messages):
 
 
 def dataiku_tools_to_gemini(*, tools):
+    def _normalize_schema(schema, path: str):
+        if schema is None:
+            return None
+        if not isinstance(schema, dict):
+            raise TypeError(f"Invalid JSON schema at {path}: expected object")
+
+        # Drop annotation-only metadata
+        out = {}
+        for key, value in schema.items():
+            if key in {"$schema", "$id"}:
+                continue
+            out[key] = value
+
+        # Validate/normalize supported keywords
+        supported = {
+            "type",
+            "description",
+            "properties",
+            "required",
+            "items",
+            "enum",
+            "additionalProperties",
+            "nullable",
+            "title",
+            "default",
+        }
+
+        # Reject unsupported structural/validation keywords explicitly
+        for key in list(out.keys()):
+            if key.startswith("$") and key not in {"$ref"}:
+                raise TypeError(f"Unsupported JSON schema keyword '{key}' at {path}")
+            if key not in supported:
+                # Allow common harmless annotations? We choose to reject to avoid silent behavior.
+                raise TypeError(f"Unsupported JSON schema keyword '{key}' at {path}")
+
+        schema_type = out.get("type")
+        if schema_type is None:
+            # Default to object if properties exist
+            if "properties" in out:
+                schema_type = "object"
+                out["type"] = "object"
+        if isinstance(schema_type, list):
+            # Normalize [T, 'null'] -> T with nullable
+            non_null = [t for t in schema_type if t != "null"]
+            if len(non_null) == 1 and len(non_null) != len(schema_type):
+                out["type"] = non_null[0]
+                out["nullable"] = True
+            else:
+                raise TypeError(f"Unsupported JSON schema type union at {path}: {schema_type}")
+
+        if out.get("type") not in {"object", "array", "string", "number", "integer", "boolean", None}:
+            raise TypeError(f"Unsupported JSON schema type at {path}: {out.get('type')}")
+
+        if out.get("type") == "object":
+            props = out.get("properties") or {}
+            if not isinstance(props, dict):
+                raise TypeError(f"Invalid properties at {path}.properties")
+            normalized_props = {}
+            for prop_name, prop_schema in props.items():
+                normalized_props[prop_name] = _normalize_schema(
+                    prop_schema, f"{path}.properties.{prop_name}"
+                )
+            if normalized_props:
+                out["properties"] = normalized_props
+
+            req = out.get("required")
+            if req is not None and not isinstance(req, list):
+                raise TypeError(f"Invalid required at {path}.required")
+
+            ap = out.get("additionalProperties")
+            if ap is not None and not isinstance(ap, (bool, dict)):
+                raise TypeError(
+                    f"Invalid additionalProperties at {path}.additionalProperties"
+                )
+            if isinstance(ap, dict):
+                out["additionalProperties"] = _normalize_schema(
+                    ap, f"{path}.additionalProperties"
+                )
+
+        if out.get("type") == "array":
+            items = out.get("items")
+            if items is None:
+                raise TypeError(f"Missing items for array schema at {path}")
+            out["items"] = _normalize_schema(items, f"{path}.items")
+
+        return out
+
     if tools is None:
         return None
     if not isinstance(tools, list):
@@ -154,10 +241,10 @@ def dataiku_tools_to_gemini(*, tools):
         if parameters is not None:
             if not isinstance(parameters, dict):
                 raise TypeError("Invalid tools setting: parameters must be an object")
-            # Gemini expects JSONSchema-ish objects. Validate minimally and pass through.
-            if parameters.get("type") not in {"object", None}:
+            normalized = _normalize_schema(parameters, f"tools[{name}].parameters")
+            if normalized.get("type") not in {"object", None}:
                 raise TypeError("Invalid tools setting: parameters.type must be 'object'")
-            decl["parameters"] = parameters
+            decl["parameters"] = normalized
 
         declarations.append(decl)
 

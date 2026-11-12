@@ -73,6 +73,84 @@ def test_dataiku_tools_to_gemini_declarations():
     ]
 
 
+def test_dataiku_tools_to_gemini_drops_schema_annotations_without_mutating_input():
+    from vertexai_shared import gemini
+
+    parameters = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "abc",
+        "type": "object",
+        "properties": {"q": {"type": "string"}},
+        "required": ["q"],
+    }
+    tools = [
+        {
+            "type": "function",
+            "function": {"name": "t", "description": "d", "parameters": parameters},
+        }
+    ]
+    out = gemini.dataiku_tools_to_gemini(tools=tools)
+    normalized = out[0]["functionDeclarations"][0]["parameters"]
+    assert "$schema" not in normalized
+    assert "$id" not in normalized
+    # ensure original object unchanged
+    assert "$schema" in parameters and "$id" in parameters
+
+
+def test_dataiku_tools_to_gemini_rejects_unsupported_keyword_with_path():
+    from vertexai_shared import gemini
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "t",
+                "description": "d",
+                "parameters": {"type": "object", "minLength": 1},
+            },
+        }
+    ]
+    with pytest.raises(TypeError) as exc:
+        gemini.dataiku_tools_to_gemini(tools=tools)
+    assert "minLength" in str(exc.value)
+    assert "tools[t].parameters" in str(exc.value)
+
+
+def test_dataiku_tools_to_gemini_normalizes_nested_objects_and_arrays():
+    from vertexai_shared import gemini
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "t",
+                "description": "d",
+                "parameters": {
+                    "$schema": "x",
+                    "type": ["object", "null"],
+                    "properties": {
+                        "items": {
+                            "type": "array",
+                            "items": {
+                                "$id": "y",
+                                "type": "object",
+                                "properties": {"k": {"type": "string", "enum": ["a", "b"]}},
+                                "required": ["k"],
+                            },
+                        }
+                    },
+                },
+            },
+        }
+    ]
+    out = gemini.dataiku_tools_to_gemini(tools=tools)
+    params = out[0]["functionDeclarations"][0]["parameters"]
+    assert params["type"] == "object"
+    assert params["nullable"] is True
+    assert params["properties"]["items"]["type"] == "array"
+    assert params["properties"]["items"]["items"]["type"] == "object"
+
+
 def test_parse_generate_content_response_text_and_function_call():
     from vertexai_shared import gemini
 
