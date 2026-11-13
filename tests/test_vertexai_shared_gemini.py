@@ -301,6 +301,41 @@ def test_dataiku_tools_to_gemini_normalizes_nested_objects_and_arrays():
     assert params["properties"]["items"]["items"]["type"] == "object"
 
 
+def test_dataiku_tools_to_gemini_omits_max_items_recursively_but_keeps_array_shape():
+    from vertexai_shared import gemini
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "ask_question_to_user",
+                "description": "d",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "predefinedAnswers": {
+                            "type": "array",
+                            "description": "Allowed answers",
+                            "maxItems": 3,
+                            "items": {"type": "string", "enum": ["a", "b", "c"]},
+                        }
+                    },
+                    "required": ["predefinedAnswers"],
+                },
+            },
+        }
+    ]
+
+    out = gemini.dataiku_tools_to_gemini(tools=tools)
+    schema = out[0]["functionDeclarations"][0]["parameters"]
+    predefined = schema["properties"]["predefinedAnswers"]
+
+    assert predefined["type"] == "array"
+    assert predefined["items"] == {"type": "string", "enum": ["a", "b", "c"]}
+    assert predefined["description"] == "Allowed answers"
+    assert "maxItems" not in predefined
+
+
 def test_parse_generate_content_response_text_and_function_call():
     from vertexai_shared import gemini
 

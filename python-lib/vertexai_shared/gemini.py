@@ -228,10 +228,17 @@ def dataiku_tools_to_gemini(*, tools):
         if not isinstance(schema, dict):
             raise TypeError(f"Invalid JSON schema at {path}: expected object")
 
+        # Vertex Gemini functionDeclarations.parameters does not support every JSON Schema keyword.
+        # We keep strict rejection for unknown keywords, but omit known-incompatible ones.
+        # Cobuild tool schemas may include maxItems on array schemas.
+        UNSUPPORTED_VERTEX_KEYWORDS = {"maxItems"}
+
         # Drop annotation-only metadata
         out = {}
         for key, value in schema.items():
             if key in {"$schema", "$id"}:
+                continue
+            if key in UNSUPPORTED_VERTEX_KEYWORDS:
                 continue
             out[key] = value
 

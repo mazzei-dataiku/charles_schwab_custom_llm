@@ -9,3 +9,5 @@
 .htmlcov
 .DS_Store
 .idea
+AGENTS.md
+.pytest_cache
