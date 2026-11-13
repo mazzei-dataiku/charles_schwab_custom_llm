@@ -441,6 +441,145 @@ def test_dataiku_tools_to_gemini_omits_multiple_validation_constraints_recursive
     assert "multipleOf" not in item_schema["properties"]["value"]
 
 
+def test_dataiku_tools_to_gemini_translates_string_const_to_single_value_enum():
+    from vertexai_shared import gemini
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "t",
+                "description": "d",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "compatibilityTarget": {
+                            "type": "string",
+                            "description": "Target",
+                            "const": "PYTHON",
+                        }
+                    },
+                    "required": ["compatibilityTarget"],
+                },
+            },
+        }
+    ]
+
+    out = gemini.dataiku_tools_to_gemini(tools=tools)
+    schema = out[0]["functionDeclarations"][0]["parameters"]
+    prop = schema["properties"]["compatibilityTarget"]
+
+    assert prop["type"] == "string"
+    assert prop["description"] == "Target"
+    assert prop["enum"] == ["PYTHON"]
+    assert "const" not in prop
+    assert schema["required"] == ["compatibilityTarget"]
+
+
+def test_dataiku_tools_to_gemini_translates_const_inside_array_items_schema():
+    from vertexai_shared import gemini
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "t",
+                "description": "d",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "targets": {
+                            "type": "array",
+                            "items": {"type": "string", "const": "PYTHON"},
+                        }
+                    },
+                    "required": ["targets"],
+                },
+            },
+        }
+    ]
+
+    out = gemini.dataiku_tools_to_gemini(tools=tools)
+    schema = out[0]["functionDeclarations"][0]["parameters"]
+    items = schema["properties"]["targets"]["items"]
+    assert items["type"] == "string"
+    assert items["enum"] == ["PYTHON"]
+
+
+def test_dataiku_tools_to_gemini_const_and_enum_compatible_results_in_single_value_enum():
+    from vertexai_shared import gemini
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "t",
+                "description": "d",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "x": {"type": "string", "const": "A", "enum": ["A", "B"]}
+                    },
+                },
+            },
+        }
+    ]
+
+    out = gemini.dataiku_tools_to_gemini(tools=tools)
+    schema = out[0]["functionDeclarations"][0]["parameters"]
+    x = schema["properties"]["x"]
+    assert x["enum"] == ["A"]
+    assert "const" not in x
+
+
+def test_dataiku_tools_to_gemini_const_and_enum_conflict_is_rejected_with_path():
+    from vertexai_shared import gemini
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "t",
+                "description": "d",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "x": {"type": "string", "const": "A", "enum": ["B"]}
+                    },
+                },
+            },
+        }
+    ]
+
+    with pytest.raises(TypeError) as exc:
+        gemini.dataiku_tools_to_gemini(tools=tools)
+    assert "Conflicting const and enum" in str(exc.value)
+    assert "tools[t].parameters" in str(exc.value)
+
+
+def test_dataiku_tools_to_gemini_object_const_is_rejected_with_path():
+    from vertexai_shared import gemini
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "t",
+                "description": "d",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"x": {"type": "object", "const": {"k": "v"}}},
+                },
+            },
+        }
+    ]
+
+    with pytest.raises(TypeError) as exc:
+        gemini.dataiku_tools_to_gemini(tools=tools)
+    assert "Unsupported JSON schema const value type" in str(exc.value)
+    assert "tools[t].parameters.properties.x.const" in str(exc.value)
+
+
 def test_parse_generate_content_response_text_and_function_call():
     from vertexai_shared import gemini
 

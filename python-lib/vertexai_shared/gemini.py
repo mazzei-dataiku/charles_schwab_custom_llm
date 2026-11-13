@@ -268,6 +268,27 @@ def dataiku_tools_to_gemini(*, tools):
                 continue
             out[key] = value
 
+        # Normalize JSON Schema `const` to a single-value `enum`.
+        # Cobuild may emit `const` and Vertex's tool schema supports `enum`.
+        if "const" in out:
+            const_value = out.pop("const")
+            if isinstance(const_value, (dict, list)):
+                raise TypeError(
+                    f"Unsupported JSON schema const value type at {path}.const"
+                )
+
+            existing_enum = out.get("enum")
+            if existing_enum is None:
+                out["enum"] = [const_value]
+            else:
+                if not isinstance(existing_enum, list):
+                    raise TypeError(f"Invalid enum at {path}.enum")
+                if const_value not in existing_enum:
+                    raise TypeError(
+                        f"Conflicting const and enum at {path}: const is not in enum"
+                    )
+                out["enum"] = [const_value]
+
         # Validate/normalize supported keywords
         supported = {
             "type",
