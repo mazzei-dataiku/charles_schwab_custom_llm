@@ -579,6 +579,19 @@ def build_empty_response_diagnostics(response_json: dict):
     if isinstance(prompt_feedback, dict):
         block_reason = prompt_feedback.get("blockReason")
 
+    usage = response_json.get("usageMetadata") or {}
+    if not isinstance(usage, dict):
+        usage = {}
+
+    def _usage_int(key: str):
+        val = usage.get(key)
+        if val is None:
+            return None
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return None
+
     diagnostics = {
         "http_status": (response_json.get("_diagnostics") or {}).get("http_status"),
         "top_level_keys": sorted([k for k in response_json.keys() if not k.startswith("_")]),
@@ -587,6 +600,10 @@ def build_empty_response_diagnostics(response_json: dict):
         "prompt_feedback_block_reason": block_reason,
         "text_parts": text_parts,
         "function_call_parts": function_call_parts,
+        "usage_prompt_token_count": _usage_int("promptTokenCount"),
+        "usage_candidates_token_count": _usage_int("candidatesTokenCount"),
+        "usage_thoughts_token_count": _usage_int("thoughtsTokenCount"),
+        "usage_total_token_count": _usage_int("totalTokenCount"),
     }
     return diagnostics
 

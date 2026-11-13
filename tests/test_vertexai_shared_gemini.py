@@ -354,6 +354,50 @@ def test_parse_or_raise_candidate_without_parts_raises_with_finish_reason():
     assert "STOP" in str(exc.value)
 
 
+def test_empty_response_diagnostics_includes_usage_metadata_fields_when_present():
+    from vertexai_shared import gemini
+
+    diag = gemini.build_empty_response_diagnostics(
+        {
+            "_diagnostics": {"http_status": 200},
+            "usageMetadata": {
+                "promptTokenCount": 10,
+                "candidatesTokenCount": 20,
+                "thoughtsTokenCount": 7,
+                "totalTokenCount": 30,
+            },
+            "candidates": [{"finishReason": "MAX_TOKENS", "content": {"parts": []}}],
+        }
+    )
+    assert diag["usage_prompt_token_count"] == 10
+    assert diag["usage_candidates_token_count"] == 20
+    assert diag["usage_thoughts_token_count"] == 7
+    assert diag["usage_total_token_count"] == 30
+
+
+def test_empty_response_diagnostics_usage_metadata_partial_and_missing():
+    from vertexai_shared import gemini
+
+    diag_partial = gemini.build_empty_response_diagnostics(
+        {
+            "usageMetadata": {"promptTokenCount": 1},
+            "candidates": [{"finishReason": "MAX_TOKENS", "content": {"parts": []}}],
+        }
+    )
+    assert diag_partial["usage_prompt_token_count"] == 1
+    assert diag_partial["usage_candidates_token_count"] is None
+    assert diag_partial["usage_thoughts_token_count"] is None
+    assert diag_partial["usage_total_token_count"] is None
+
+    diag_missing = gemini.build_empty_response_diagnostics(
+        {"candidates": [{"finishReason": "MAX_TOKENS", "content": {"parts": []}}]}
+    )
+    assert diag_missing["usage_prompt_token_count"] is None
+    assert diag_missing["usage_candidates_token_count"] is None
+    assert diag_missing["usage_thoughts_token_count"] is None
+    assert diag_missing["usage_total_token_count"] is None
+
+
 def test_extract_usage_metadata_happy_path_and_missing_values():
     from vertexai_shared import gemini
 
