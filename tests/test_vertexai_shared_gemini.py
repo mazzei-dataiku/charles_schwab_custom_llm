@@ -256,13 +256,13 @@ def test_dataiku_tools_to_gemini_rejects_unsupported_keyword_with_path():
             "function": {
                 "name": "t",
                 "description": "d",
-                "parameters": {"type": "object", "minLength": 1},
+                "parameters": {"type": "object", "anyOf": [{"type": "string"}]},
             },
         }
     ]
     with pytest.raises(TypeError) as exc:
         gemini.dataiku_tools_to_gemini(tools=tools)
-    assert "minLength" in str(exc.value)
+    assert "anyOf" in str(exc.value)
     assert "tools[t].parameters" in str(exc.value)
 
 
@@ -334,6 +334,111 @@ def test_dataiku_tools_to_gemini_omits_max_items_recursively_but_keeps_array_sha
     assert predefined["items"] == {"type": "string", "enum": ["a", "b", "c"]}
     assert predefined["description"] == "Allowed answers"
     assert "maxItems" not in predefined
+
+
+def test_dataiku_tools_to_gemini_omits_max_length_in_string_property():
+    from vertexai_shared import gemini
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "ask_question_to_user",
+                "description": "d",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "title": {
+                            "type": "string",
+                            "description": "Question title",
+                            "maxLength": 80,
+                        }
+                    },
+                    "required": ["title"],
+                },
+            },
+        }
+    ]
+
+    out = gemini.dataiku_tools_to_gemini(tools=tools)
+    schema = out[0]["functionDeclarations"][0]["parameters"]
+    title_schema = schema["properties"]["title"]
+
+    assert title_schema["type"] == "string"
+    assert title_schema["description"] == "Question title"
+    assert "maxLength" not in title_schema
+
+
+def test_dataiku_tools_to_gemini_omits_multiple_validation_constraints_recursively():
+    from vertexai_shared import gemini
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "t",
+                "description": "d",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "title": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80,
+                            "pattern": "^[A-Za-z]+$",
+                            "format": "uuid",
+                        },
+                        "answers": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 3,
+                            "uniqueItems": True,
+                            "items": {
+                                "type": "object",
+                                "minProperties": 1,
+                                "maxProperties": 3,
+                                "properties": {
+                                    "value": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 10,
+                                        "multipleOf": 1,
+                                    }
+                                },
+                                "required": ["value"],
+                            },
+                        },
+                    },
+                    "required": ["title", "answers"],
+                },
+            },
+        }
+    ]
+
+    out = gemini.dataiku_tools_to_gemini(tools=tools)
+    schema = out[0]["functionDeclarations"][0]["parameters"]
+
+    title_schema = schema["properties"]["title"]
+    assert title_schema["type"] == "string"
+    assert "minLength" not in title_schema
+    assert "maxLength" not in title_schema
+    assert "pattern" not in title_schema
+    assert "format" not in title_schema
+
+    answers_schema = schema["properties"]["answers"]
+    assert answers_schema["type"] == "array"
+    assert "minItems" not in answers_schema
+    assert "maxItems" not in answers_schema
+    assert "uniqueItems" not in answers_schema
+
+    item_schema = answers_schema["items"]
+    assert item_schema["type"] == "object"
+    assert "minProperties" not in item_schema
+    assert "maxProperties" not in item_schema
+    assert item_schema["properties"]["value"]["type"] == "integer"
+    assert "minimum" not in item_schema["properties"]["value"]
+    assert "maximum" not in item_schema["properties"]["value"]
+    assert "multipleOf" not in item_schema["properties"]["value"]
 
 
 def test_parse_generate_content_response_text_and_function_call():

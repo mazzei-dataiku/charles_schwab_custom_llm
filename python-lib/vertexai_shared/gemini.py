@@ -229,16 +229,42 @@ def dataiku_tools_to_gemini(*, tools):
             raise TypeError(f"Invalid JSON schema at {path}: expected object")
 
         # Vertex Gemini functionDeclarations.parameters does not support every JSON Schema keyword.
-        # We keep strict rejection for unknown keywords, but omit known-incompatible ones.
-        # Cobuild tool schemas may include maxItems on array schemas.
-        UNSUPPORTED_VERTEX_KEYWORDS = {"maxItems"}
+        # We keep strict rejection for unknown keywords / structural constructs, but omit a curated
+        # set of validation-only constraints that Cobuild may include (and that Vertex may not
+        # accept in OpenAPI-like schema objects).
+        #
+        # Evidence: Vertex AI function calling documentation examples only demonstrate a small
+        # subset of schema keywords (not length/item constraints). See:
+        # https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/function-calling
+        OMITTABLE_VALIDATION_KEYWORDS = {
+            # Strings
+            "minLength",
+            "maxLength",
+            "pattern",
+            "format",
+            # Arrays
+            "minItems",
+            "maxItems",
+            "uniqueItems",
+            # Numbers
+            "minimum",
+            "maximum",
+            "exclusiveMinimum",
+            "exclusiveMaximum",
+            "multipleOf",
+            # Objects
+            "minProperties",
+            "maxProperties",
+            # Annotations
+            "examples",
+        }
 
         # Drop annotation-only metadata
         out = {}
         for key, value in schema.items():
             if key in {"$schema", "$id"}:
                 continue
-            if key in UNSUPPORTED_VERTEX_KEYWORDS:
+            if key in OMITTABLE_VALIDATION_KEYWORDS:
                 continue
             out[key] = value
 
