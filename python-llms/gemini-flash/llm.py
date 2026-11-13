@@ -75,6 +75,15 @@ class MyLLM(BaseLLM):
             if tool_config:
                 payload["tools"] = tool_config
 
+        tool_choice = settings.get("toolChoice") if isinstance(settings, dict) else None
+        if include_tool_config and tool_choice is not None:
+            gemini_tool_config = vertex_gemini.dataiku_tool_choice_to_gemini(
+                tool_choice=tool_choice,
+                declared_tools=tools,
+            )
+            if gemini_tool_config:
+                payload["toolConfig"] = gemini_tool_config
+
         payload["generationConfig"] = vertex_gemini.build_generation_config(
             max_output_tokens=self._config["max_output_tokens"],
             temperature=self._config["temperature"],
@@ -105,7 +114,17 @@ class MyLLM(BaseLLM):
         response_json = self._invoke(payload)
 
         text, tool_calls = vertex_gemini.parse_or_raise_empty(response_json)
-        return {"text": text or "", "toolCalls": tool_calls}
+        usage = vertex_gemini.extract_usage_metadata(response_json)
+        finish_reason = vertex_gemini.extract_finish_reason(
+            response_json, has_tool_calls=bool(tool_calls)
+        )
+        return {
+            "text": text or "",
+            "toolCalls": tool_calls,
+            "promptTokens": usage["promptTokens"],
+            "completionTokens": usage["completionTokens"],
+            "finishReason": finish_reason,
+        }
 
     def process_stream(self, query, settings, trace):
         logger = logging.getLogger(__name__)
@@ -159,7 +178,25 @@ class MyLLM(BaseLLM):
             raise
 
         if tool_calls:
-            yield from stream_tool_calls(tool_calls=tool_calls, footer={})
+            usage = vertex_gemini.extract_usage_metadata(response_json)
+            finish_reason = vertex_gemini.extract_finish_reason(
+                response_json, has_tool_calls=True
+            )
+            footer = {
+                "promptTokens": usage["promptTokens"],
+                "completionTokens": usage["completionTokens"],
+                "finishReason": finish_reason,
+            }
+            yield from stream_tool_calls(tool_calls=tool_calls, footer=footer)
             return
 
-        yield from stream_single_chunk(text=text or "", footer={})
+        usage = vertex_gemini.extract_usage_metadata(response_json)
+        finish_reason = vertex_gemini.extract_finish_reason(
+            response_json, has_tool_calls=False
+        )
+        footer = {
+            "promptTokens": usage["promptTokens"],
+            "completionTokens": usage["completionTokens"],
+            "finishReason": finish_reason,
+        }
+        yield from stream_single_chunk(text=text or "", footer=footer)

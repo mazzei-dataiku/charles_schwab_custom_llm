@@ -52,7 +52,12 @@ def test_process_builds_payload_and_returns_text(monkeypatch):
     monkeypatch.setattr(module.vertex_gemini, "build_generate_content_url", build_url_mock)
     monkeypatch.setattr(module.vertex_gemini, "get_bearer_token", lambda **kwargs: "token")
 
-    invoke_mock = MagicMock(return_value={"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+    invoke_mock = MagicMock(
+        return_value={
+            "candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "ok"}]}}],
+            "usageMetadata": {"promptTokenCount": 3, "candidatesTokenCount": 5},
+        }
+    )
     monkeypatch.setattr(module.vertex_gemini, "invoke_generate_content", invoke_mock)
 
     llm.set_config(
@@ -67,6 +72,9 @@ def test_process_builds_payload_and_returns_text(monkeypatch):
     )
     assert out["text"] == "ok"
     assert isinstance(out["toolCalls"], list)
+    assert out["promptTokens"] == 3
+    assert out["completionTokens"] == 5
+    assert out["finishReason"] == "stop"
 
     payload = invoke_mock.call_args.kwargs["payload"]
     assert payload["systemInstruction"]["parts"][0]["text"] == "s"
@@ -74,6 +82,145 @@ def test_process_builds_payload_and_returns_text(monkeypatch):
 
     # Location used for URL must be global by default
     assert build_url_mock.call_args.kwargs["location"] == "global"
+
+
+def test_process_tool_choice_absent_preserves_payload(monkeypatch):
+    module = _load_gemini_flash_module()
+    llm = module.MyLLM()
+
+    monkeypatch.setattr(module.vertex_auth, "build_credentials", lambda plugin_config: "creds")
+    monkeypatch.setattr(module.vertex_gemini, "build_generate_content_url", lambda **kwargs: "url")
+    monkeypatch.setattr(module.vertex_gemini, "get_bearer_token", lambda **kwargs: "token")
+
+    invoke_mock = MagicMock(
+        return_value={
+            "candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "ok"}]}}],
+            "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1},
+        }
+    )
+    monkeypatch.setattr(module.vertex_gemini, "invoke_generate_content", invoke_mock)
+
+    llm.set_config(
+        config={"max_output_tokens": 10, "temperature": 0.1},
+        plugin_config={"project_id": "p", "location": "global"},
+    )
+
+    llm.process(
+        query={"messages": [{"role": "user", "content": "u"}]},
+        settings={"tools": []},
+        trace={},
+    )
+
+    payload = invoke_mock.call_args.kwargs["payload"]
+    assert "toolConfig" not in payload
+
+
+@pytest.mark.parametrize(
+    "tool_choice,expected",
+    [
+        ("auto", {"functionCallingConfig": {"mode": "AUTO"}}),
+        ("none", {"functionCallingConfig": {"mode": "NONE"}}),
+        ("required", {"functionCallingConfig": {"mode": "ANY"}}),
+        ("any", {"functionCallingConfig": {"mode": "ANY"}}),
+    ],
+)
+def test_process_tool_choice_string_modes(monkeypatch, tool_choice, expected):
+    module = _load_gemini_flash_module()
+    llm = module.MyLLM()
+
+    monkeypatch.setattr(module.vertex_auth, "build_credentials", lambda plugin_config: "creds")
+    monkeypatch.setattr(module.vertex_gemini, "build_generate_content_url", lambda **kwargs: "url")
+    monkeypatch.setattr(module.vertex_gemini, "get_bearer_token", lambda **kwargs: "token")
+
+    invoke_mock = MagicMock(
+        return_value={
+            "candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "ok"}]}}],
+            "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1},
+        }
+    )
+    monkeypatch.setattr(module.vertex_gemini, "invoke_generate_content", invoke_mock)
+
+    llm.set_config(
+        config={"max_output_tokens": 10, "temperature": 0.1},
+        plugin_config={"project_id": "p", "location": "global"},
+    )
+
+    llm.process(
+        query={"messages": [{"role": "user", "content": "u"}]},
+        settings={
+            "tools": [
+                {"type": "function", "function": {"name": "t", "description": "d"}},
+            ],
+            "toolChoice": tool_choice,
+        },
+        trace={},
+    )
+
+    payload = invoke_mock.call_args.kwargs["payload"]
+    assert payload["toolConfig"] == expected
+
+
+def test_process_tool_choice_named_function(monkeypatch):
+    module = _load_gemini_flash_module()
+    llm = module.MyLLM()
+
+    monkeypatch.setattr(module.vertex_auth, "build_credentials", lambda plugin_config: "creds")
+    monkeypatch.setattr(module.vertex_gemini, "build_generate_content_url", lambda **kwargs: "url")
+    monkeypatch.setattr(module.vertex_gemini, "get_bearer_token", lambda **kwargs: "token")
+
+    invoke_mock = MagicMock(
+        return_value={
+            "candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": "ok"}]}}],
+            "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1},
+        }
+    )
+    monkeypatch.setattr(module.vertex_gemini, "invoke_generate_content", invoke_mock)
+
+    llm.set_config(
+        config={"max_output_tokens": 10, "temperature": 0.1},
+        plugin_config={"project_id": "p", "location": "global"},
+    )
+
+    llm.process(
+        query={"messages": [{"role": "user", "content": "u"}]},
+        settings={
+            "tools": [
+                {"type": "function", "function": {"name": "t", "description": "d"}},
+                {"type": "function", "function": {"name": "u", "description": "d"}},
+            ],
+            "toolChoice": {"type": "function", "function": {"name": "u"}},
+        },
+        trace={},
+    )
+
+    payload = invoke_mock.call_args.kwargs["payload"]
+    assert payload["toolConfig"] == {
+        "functionCallingConfig": {"mode": "ANY", "allowedFunctionNames": ["u"]}
+    }
+
+
+def test_process_tool_choice_invalid_named_function_raises(monkeypatch):
+    module = _load_gemini_flash_module()
+    llm = module.MyLLM()
+
+    monkeypatch.setattr(module.vertex_auth, "build_credentials", lambda plugin_config: "creds")
+    llm.set_config(
+        config={"max_output_tokens": 10, "temperature": 0.1},
+        plugin_config={"project_id": "p", "location": "global"},
+    )
+
+    with pytest.raises(TypeError) as exc:
+        llm.process(
+            query={"messages": [{"role": "user", "content": "u"}]},
+            settings={
+                "tools": [
+                    {"type": "function", "function": {"name": "t", "description": "d"}},
+                ],
+                "toolChoice": {"type": "function", "function": {"name": "nope"}},
+            },
+            trace={},
+        )
+    assert "Invalid toolChoice tool name" in str(exc.value)
 
 
 def test_process_stream_emits_tool_calls(monkeypatch):
@@ -90,8 +237,12 @@ def test_process_stream_emits_tool_calls(monkeypatch):
         "invoke_generate_content",
         lambda **kwargs: {
             "candidates": [
-                {"content": {"parts": [{"functionCall": {"name": "t", "args": {"a": 1}}}]}}
-            ]
+                {
+                    "finishReason": "STOP",
+                    "content": {"parts": [{"functionCall": {"name": "t", "args": {"a": 1}}}]},
+                }
+            ],
+            "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 2},
         },
     )
 
@@ -108,6 +259,9 @@ def test_process_stream_emits_tool_calls(monkeypatch):
         )
     )
     assert events[0]["chunk"].get("toolCalls")
+    assert events[-1]["footer"]["promptTokens"] == 1
+    assert events[-1]["footer"]["completionTokens"] == 2
+    assert events[-1]["footer"]["finishReason"] == "tool_calls"
 
 
 def test_second_iteration_invokes_vertex_once_with_tool_calls_and_outputs(monkeypatch):

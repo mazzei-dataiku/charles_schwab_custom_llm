@@ -349,6 +349,93 @@ def dataiku_tools_to_gemini(*, tools):
     return [{"functionDeclarations": declarations}]
 
 
+def dataiku_tool_choice_to_gemini(*, tool_choice, declared_tools):
+    """Translate Dataiku toolChoice to Gemini toolConfig.functionCallingConfig.
+
+    Supported Dataiku values (string or object):
+    - "auto" -> mode AUTO
+    - "none" -> mode NONE
+    - "required" / "any" -> mode ANY
+    - {"type":"function", "function":{"name":"<tool>"}} -> mode ANY + allowedFunctionNames
+    """
+
+    if tool_choice is None:
+        return None
+
+    declared_names = set()
+    if isinstance(declared_tools, list):
+        for tool in declared_tools:
+            if not isinstance(tool, dict):
+                continue
+            if tool.get("type") != "function":
+                continue
+            fn = tool.get("function") or {}
+            name = fn.get("name")
+            if isinstance(name, str) and name.strip():
+                declared_names.add(name)
+
+    def _require_declared(name: str):
+        if not declared_names:
+            raise TypeError(
+                "toolChoice requires declared tools, but settings['tools'] is empty"
+            )
+        if name not in declared_names:
+            raise TypeError(
+                f"Invalid toolChoice tool name '{name}'; not present in declared tools"
+            )
+
+    if isinstance(tool_choice, str):
+        choice = tool_choice.strip().lower()
+        if choice in {"auto"}:
+            return {"functionCallingConfig": {"mode": "AUTO"}}
+        if choice in {"none"}:
+            return {"functionCallingConfig": {"mode": "NONE"}}
+        if choice in {"required", "any"}:
+            if not declared_names:
+                raise TypeError(
+                    "toolChoice='required' requires at least one declared tool"
+                )
+            return {"functionCallingConfig": {"mode": "ANY"}}
+        raise TypeError(f"Unsupported toolChoice string value: {tool_choice}")
+
+    if isinstance(tool_choice, dict):
+        choice_type = tool_choice.get("type")
+
+        # Dataiku Product compatibility: {"type":"tool_name", "name":"<tool>"}
+        if choice_type == "tool_name":
+            name = tool_choice.get("name")
+            if not isinstance(name, str) or not name.strip():
+                raise TypeError("Invalid toolChoice.name")
+            name = name.strip()
+            _require_declared(name)
+            return {
+                "functionCallingConfig": {
+                    "mode": "ANY",
+                    "allowedFunctionNames": [name],
+                }
+            }
+
+        # OpenAI-style named function: {"type":"function", "function": {"name": "<tool>"}}
+        if choice_type != "function":
+            raise TypeError("Unsupported toolChoice object: expected type='function' or type='tool_name'")
+        fn = tool_choice.get("function")
+        if not isinstance(fn, dict):
+            raise TypeError("Invalid toolChoice.function: expected object")
+        name = fn.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise TypeError("Invalid toolChoice.function.name")
+        name = name.strip()
+        _require_declared(name)
+        return {
+            "functionCallingConfig": {
+                "mode": "ANY",
+                "allowedFunctionNames": [name],
+            }
+        }
+
+    raise TypeError("Unsupported toolChoice: expected string or object")
+
+
 def dataiku_tool_outputs_to_gemini(*, query_messages, prior_tool_calls):
     """Convert Dataiku tool output messages into Gemini functionResponse parts.
 
@@ -573,3 +660,49 @@ def parse_or_raise_empty(response_json: dict):
         "Empty Vertex generateContent response (no text parts, no function calls). "
         f"Diagnostics: {json.dumps(diag, sort_keys=True)}"
     )
+
+
+def extract_usage_metadata(response_json: dict):
+    """Extract token counts from Vertex AI usageMetadata."""
+
+    if not isinstance(response_json, dict):
+        return {"promptTokens": 0, "completionTokens": 0}
+
+    usage = response_json.get("usageMetadata") or {}
+    if not isinstance(usage, dict):
+        return {"promptTokens": 0, "completionTokens": 0}
+
+    def _to_int(value):
+        try:
+            if value is None:
+                return 0
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+
+    return {
+        "promptTokens": _to_int(usage.get("promptTokenCount")),
+        "completionTokens": _to_int(usage.get("candidatesTokenCount")),
+    }
+
+
+def extract_finish_reason(response_json: dict, *, has_tool_calls: bool):
+    """Map Vertex finish reasons to Dataiku finishReason."""
+
+    if has_tool_calls:
+        return "tool_calls"
+
+    if not isinstance(response_json, dict):
+        return "stop"
+
+    candidates = response_json.get("candidates") or []
+    finish = None
+    if isinstance(candidates, list) and candidates:
+        finish = (candidates[0] or {}).get("finishReason")
+
+    finish = (finish or "").strip().upper()
+    if finish == "MAX_TOKENS":
+        return "length"
+    if finish in {"SAFETY", "RECITATION"}:
+        return "content_filter"
+    return "stop"

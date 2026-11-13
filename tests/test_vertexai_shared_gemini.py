@@ -354,6 +354,84 @@ def test_parse_or_raise_candidate_without_parts_raises_with_finish_reason():
     assert "STOP" in str(exc.value)
 
 
+def test_extract_usage_metadata_happy_path_and_missing_values():
+    from vertexai_shared import gemini
+
+    assert gemini.extract_usage_metadata(
+        {"usageMetadata": {"promptTokenCount": 4, "candidatesTokenCount": 7}}
+    ) == {"promptTokens": 4, "completionTokens": 7}
+    assert gemini.extract_usage_metadata({}) == {"promptTokens": 0, "completionTokens": 0}
+
+
+def test_extract_finish_reason_maps_max_tokens_and_tool_calls():
+    from vertexai_shared import gemini
+
+    assert (
+        gemini.extract_finish_reason(
+            {"candidates": [{"finishReason": "MAX_TOKENS"}]}, has_tool_calls=False
+        )
+        == "length"
+    )
+    assert (
+        gemini.extract_finish_reason(
+            {"candidates": [{"finishReason": "STOP"}]}, has_tool_calls=True
+    )
+        == "tool_calls"
+    )
+
+
+def test_dataiku_tool_choice_to_gemini_string_and_named_function():
+    from vertexai_shared import gemini
+
+    tools = [
+        {"type": "function", "function": {"name": "t", "description": "d"}},
+        {"type": "function", "function": {"name": "u", "description": "d"}},
+    ]
+
+    assert gemini.dataiku_tool_choice_to_gemini(tool_choice="auto", declared_tools=tools) == {
+        "functionCallingConfig": {"mode": "AUTO"}
+    }
+    assert gemini.dataiku_tool_choice_to_gemini(tool_choice="none", declared_tools=tools) == {
+        "functionCallingConfig": {"mode": "NONE"}
+    }
+    assert gemini.dataiku_tool_choice_to_gemini(tool_choice="required", declared_tools=tools) == {
+        "functionCallingConfig": {"mode": "ANY"}
+    }
+    assert gemini.dataiku_tool_choice_to_gemini(
+        tool_choice={"type": "function", "function": {"name": "u"}},
+        declared_tools=tools,
+    ) == {"functionCallingConfig": {"mode": "ANY", "allowedFunctionNames": ["u"]}}
+
+    assert gemini.dataiku_tool_choice_to_gemini(
+        tool_choice={"type": "tool_name", "name": "u"},
+        declared_tools=tools,
+    ) == {"functionCallingConfig": {"mode": "ANY", "allowedFunctionNames": ["u"]}}
+
+
+def test_dataiku_tool_choice_to_gemini_rejects_unknown_tool():
+    from vertexai_shared import gemini
+
+    tools = [{"type": "function", "function": {"name": "t", "description": "d"}}]
+    with pytest.raises(TypeError) as exc:
+        gemini.dataiku_tool_choice_to_gemini(
+            tool_choice={"type": "function", "function": {"name": "nope"}},
+            declared_tools=tools,
+        )
+    assert "Invalid toolChoice tool name" in str(exc.value)
+
+
+def test_dataiku_tool_choice_to_gemini_tool_name_rejects_missing_name():
+    from vertexai_shared import gemini
+
+    tools = [{"type": "function", "function": {"name": "t", "description": "d"}}]
+    with pytest.raises(TypeError) as exc:
+        gemini.dataiku_tool_choice_to_gemini(
+            tool_choice={"type": "tool_name", "name": ""},
+            declared_tools=tools,
+        )
+    assert "Invalid toolChoice.name" in str(exc.value)
+
+
 def test_get_bearer_token_refreshes_custom_credentials():
     from vertexai_shared import gemini
 
