@@ -2,7 +2,7 @@
 
 **Author:** Stephen Mazzei  
 **Organization:** Dataiku  
-**Version:** 1.0.2  
+**Version:** 1.1.0  
 **Status:** Active Development  
 **Platform:** Dataiku DSS / LLM Mesh  
 **Integration:** Google Cloud Vertex AI
@@ -15,7 +15,7 @@
 >
 > This is a custom plugin implementation and should not be assumed to be an officially supported Dataiku product integration.
 >
-> **Version 1.0.2:** Improved Gemini tool-calling compatibility, token accounting, finish-reason reporting, and Cobuild integration. Additional compatibility testing and enhancements are ongoing.
+> **Version 1.1.0:** Improved Gemini Cobuild tool schema compatibility by normalizing unsupported JSON Schema keywords (validation-only constraints) and translating `const` into a single-value `enum` when possible. This reduces schema-related failures while preserving structural schema validation.
 
 ---
 
@@ -346,7 +346,7 @@ Development conventions and Codex instructions are documented in:
 
 ## Version History
 
-### 1.0.2 — Current
+### 1.1.0 — Current
 
 - Improved Dataiku Cobuild compatibility.
 - Added Gemini tool-choice handling.
@@ -356,6 +356,11 @@ Development conventions and Codex instructions are documented in:
 - Validated multi-round tool execution.
 - Successfully tested Cobuild web application creation on DSS 14.7.3.
 - Continued testing of additional tool schema compatibility.
+- Improved JSON Schema normalization for Gemini tool declarations (omits validation-only constraints and translates `const` to `enum`).
+
+### 1.0.2
+
+- Improved Gemini tool-calling compatibility, token accounting, finish-reason reporting, and Cobuild integration.
 
 ### Earlier Versions
 
@@ -367,7 +372,7 @@ Historical changes for versions before 1.0.2 have not yet been documented.
 
 **Maintainer:** Stephen Mazzei  
 **Organization:** Dataiku  
-**Current Version:** 1.0.2
+**Current Version:** 1.1.0
 
 This repository is under active development. Features and compatibility should be validated against the specific Dataiku DSS version, Vertex AI endpoint, and model configuration in use.
 
